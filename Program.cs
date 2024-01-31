@@ -29,7 +29,8 @@ namespace htmlParser
         DoctypeToken,
         ClosingTagToken,
         ContentToken,
-        SpecialCharToken
+        SpecialCharToken,
+        CDATAToken
     }
 
     class Token(TokenKind kind, string? tagName, Dictionary<string, string>? attrs, string text, int position)
@@ -42,7 +43,7 @@ namespace htmlParser
 
         public override string ToString()
         {
-            return $"{Kind,-15} {TagName,-15} {Text,-40} {position,-10}";
+            return $"{Kind,-15} {TagName,-15} {Text} {position,-10}";
         }
     }
 
@@ -121,23 +122,29 @@ namespace htmlParser
 
         private void DataState()
         {
-            if (!_pauseParsing)
+            if (Current == '\n' || Current == '\r' || Current == '\t' || Current == ' ' || Current == '\0')
             {
-                if (Current == '\n' || Current == '\r' || Current == '\t' || Current == ' ' || Current == '\0')
+                Next();
+                DataState();
+            }
+            else if (!_pauseParsing && Current == '<') // <...
+            {
+                _start = _position;
+                BeforeTagState();
+            }
+            else if (_pauseParsing && Current == '<')
+            {
+                Next();
+                if (Current == '/')
                 {
-                    Next();
-                    DataState();
+                    _pauseParsing = false;
+                    BeforeClosingTagState();
                 }
-                else if (Current == '<') // Начало тега, секции doctype, секции cdata
-                {
-                    _start = _position;
-                    TagState();
-                }
-                else // Начало секции с текстом
-                {
-                    _start = _position;
-                    ContentState();
-                }
+            }
+            else // Any text content
+            {
+                _start = _position;
+                ContentState();
             }
         }
 
@@ -147,55 +154,81 @@ namespace htmlParser
 
             if (Current == '<')
             {
-                var text = _markup.Substring(_start, _position - _start);
-                _tokens.Add(new Token(TokenKind.ContentToken, null, null, text, _start));
-                
-                DataState();
+                if (!_pauseParsing)
+                {
+                    var text = _markup.Substring(_start, _position - _start);
+                    _tokens.Add(new Token(TokenKind.ContentToken, null, null, text.Trim(), _start));
+                    
+                    DataState();
+                }
+                else
+                {
+                    Next();
+
+                    if (Current == '/')
+                    {
+                        var text = _markup.Substring(_start, _position - _start - 1);
+                        _tokens.Add(new Token(TokenKind.ContentToken, null, null, text, _start));
+
+                        _start = _position - 1;
+                        BeforeClosingTagState();
+                    }
+                    else
+                        ContentState();
+                }
+                    
             }
             else
                 ContentState();
         }
 
-        private void TagState()
+        private void BeforeTagState()
         {
             Next();
 
-            if (Current == '!') // Valid comment or Doctype or CDATA or bogus comment
+            if (Current == '!') // <!--... , <!DOCTYPE..., <!...  
             {
-                Next();
-                if (Current == '-') // Still recognize like a valid comment
-                {
-                    Next();
-                    if (Current == '-') // Valid comment
-                        BeforeCommentState();
-                    else
-                        BogusCommentState(); // Invalid comment
-                }
-                else if (Current == 'D') // Doctype
-                    DoctypeState();
-                else if (Current == '[') // CDATA section
-                    CDATAState();
-                else
-                    BogusCommentState(); // Invalid comment
+                ExclamationMarkTagState();
             }
-            else if (Current == '/') // Closing tag
-                ClosingTagState();
-            else if (char.IsLetter(Current)) // Open tag
+            else if (Current == '/') // </...
+            {
+                BeforeClosingTagState();
+            }
+            else if (char.IsLetter(Current)) // <a...
             {
                 _openTagName.Clear();
                 _openTagName.Add(Current);  
                 TagNameState();
             }
             else
+            {
                 ParseError($"Invalid character '{Current}' in this context! {_position}");
+            }
         }
 
-        private void ClosingTagState()
+        private void ExclamationMarkTagState()
+        {
+            Next();
+            if (Current == '-') // <!-...
+            {
+                Next();
+                if (Current == '-') // <!--...
+                    BeforeCommentState();
+                else
+                    BogusCommentState();
+            }
+            else if (Current == 'D') // <!D...
+                DoctypeState();
+            else
+                BogusCommentState();
+        }
+
+        private void BeforeClosingTagState()
         {
             Next();
 
             if (Current == ' ')
-                ClosingTagState();
+                BeforeClosingTagState();
             else if (Current == '>')
                 ParseError($"Invalid closing tag! {_position}");
             else if (char.IsLetter(Current) || char.IsDigit(Current))
@@ -218,14 +251,15 @@ namespace htmlParser
             else if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.ClosingTagToken, Stringify(_closingTagName), null, text, _position++));
+                var tagName = Stringify(_closingTagName);
+                
+                _tokens.Add(new Token(TokenKind.ClosingTagToken, tagName, null, text, _start));
+                Next();
+                
+                if (tagName == "script" || tagName == "style")
+                    _pauseParsing = false;
             }
-        }
-
-        private void CDATAState()
-        {
-            throw new NotImplementedException();
-        }
+        }        
 
         private void DoctypeState() 
         //  <!DOCTYPE html>
@@ -254,7 +288,8 @@ namespace htmlParser
             else if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.DoctypeToken, null, null, text, _position++));
+                _tokens.Add(new Token(TokenKind.DoctypeToken, null, null, text, _start));
+                Next();
             }
             else
                 DoctypeValueState();
@@ -267,7 +302,8 @@ namespace htmlParser
             if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.BogusCommentToken, null, null, text, _position++));
+                _tokens.Add(new Token(TokenKind.BogusCommentToken, null, null, text, _start));
+                Next();
             }
         }
 
@@ -301,7 +337,8 @@ namespace htmlParser
             else if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.CommentToken, null, null, text, _position++));
+                _tokens.Add(new Token(TokenKind.CommentToken, null, null, text, _start));
+                Next();
             }
             else
                 CommentState();
@@ -319,13 +356,22 @@ namespace htmlParser
             else if (Current == '>') // Create open tag token
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.OpenTagToken, Stringify(_openTagName), DictCopy(_attrs), text, _position++));
+                var tagName = Stringify(_openTagName);
+
+                _tokens.Add(new Token(TokenKind.OpenTagToken, tagName, DictCopy(_attrs), text, _start));
+                Next();
                 _attrs.Clear();
+
+                if (tagName == "script" || tagName == "style")
+                    _pauseParsing = true;
             }
+
             else if (Current == ' ') // If tag has attributes
                 AfterTagNameState();
+
             else if (Current == '/') // Looks like self-closing
                 AfterSelfClosingTagState();
+
             else
                 ParseError($"Bad token name: char '{Current}' must not contains in tag name! {_position}");
         }
@@ -339,8 +385,14 @@ namespace htmlParser
             else if (Current == '>') // Create open tag token
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.OpenTagToken, Stringify(_openTagName), DictCopy(_attrs), text, _position++));
+                var tagName = Stringify(_openTagName);
+
+                _tokens.Add(new Token(TokenKind.OpenTagToken, tagName, DictCopy(_attrs), text, _start));
+                Next();
                 _attrs.Clear();
+
+                if (tagName == "script" || tagName == "style")
+                    _pauseParsing = true;
             }
             else if (char.IsLetter(Current))
             {
@@ -470,7 +522,8 @@ namespace htmlParser
             else if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.SelfClosingTagToken, Stringify(_openTagName), _attrs, text, _position++));
+                _tokens.Add(new Token(TokenKind.SelfClosingTagToken, Stringify(_openTagName), _attrs, text, _start));
+                Next();
             }
             else
                 ParseError($"Invalid character '{Current}' after '/'!");
