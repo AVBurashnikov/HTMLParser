@@ -33,17 +33,42 @@ namespace htmlParser
         CDATAToken
     }
 
-    class Token(TokenKind kind, string? tagName, Dictionary<string, string>? attrs, string text, int position)
+    class Token(TokenKind kind, string? tagName, Dictionary<string, string[]>? attrs, string text, int position)
     {
         public TokenKind Kind { get; } = kind;
         public string? TagName { get; } = tagName;
-        public Dictionary<string, string>? Attributes { get; } = attrs;
+        public Dictionary<string, string[]>? Attributes { get; } = attrs;
         public string Text { get; } = text;
         public int Position { get; } = position;
 
         public override string ToString()
         {
-            return $"{Kind,-15} {TagName,-15} {Text} {position,-10}";
+            var sb = new StringBuilder();
+
+            sb.Append($"{Kind}: {TagName}, position={position}\n");
+
+            if (Attributes is not null)
+            {
+                sb.Append($"Attributes:\n");
+                foreach(KeyValuePair<string, string[]> attr in Attributes)
+                {
+                    sb.Append($"\t{attr.Key.ToString()} = ");
+
+                    if (attr.Key == "class")
+                    {
+                        sb.Append("[ ");
+                        foreach (string attrValue in attr.Value)
+                            sb.Append($"{attrValue}, ");
+                        sb.Append(']');
+                    }
+                    else
+                        sb.Append(attr.Value[0].ToString() + '\n');
+                }
+            }
+
+            sb.Append('\n');
+
+            return sb.ToString();
         }
     }
 
@@ -55,7 +80,7 @@ namespace htmlParser
         private bool _pauseParsing = false;
 
         private List<Token> _tokens = [];
-        private Dictionary<string, string> _attrs = [];
+        private Dictionary<string, string[]> _attrs = [];
         private List<char> _openTagName = [];
         private List<char> _closingTagName = [];
         private List<char> _attrName = [];
@@ -94,11 +119,14 @@ namespace htmlParser
             return sb.ToString();
         }
 
-        private Dictionary<string, string> DictCopy(Dictionary<string, string> dict)
+        private Dictionary<string, string[]> DictCopy(Dictionary<string, string[]> dict)
         {
-            var newDict = new Dictionary<string, string>();
+            var newDict = new Dictionary<string, string[]>();
 
-            foreach(KeyValuePair<string, string> pair in dict)
+            if (dict.Count == 0)
+                return null;
+
+            foreach(KeyValuePair<string, string[]> pair in dict)
             {
                 newDict.Add(pair.Key, pair.Value);
             }
@@ -157,7 +185,7 @@ namespace htmlParser
                 if (!_pauseParsing)
                 {
                     var text = _markup.Substring(_start, _position - _start);
-                    _tokens.Add(new Token(TokenKind.ContentToken, null, null, text.Trim(), _start));
+                    _tokens.Add(new Token(TokenKind.ContentToken, "text element", null, text.Trim(), _start));
                     
                     DataState();
                 }
@@ -168,7 +196,7 @@ namespace htmlParser
                     if (Current == '/')
                     {
                         var text = _markup.Substring(_start, _position - _start - 1);
-                        _tokens.Add(new Token(TokenKind.ContentToken, null, null, text, _start));
+                        _tokens.Add(new Token(TokenKind.ContentToken, "text element", null, text.Trim(), _start));
 
                         _start = _position - 1;
                         BeforeClosingTagState();
@@ -288,7 +316,7 @@ namespace htmlParser
             else if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.DoctypeToken, null, null, text, _start));
+                _tokens.Add(new Token(TokenKind.DoctypeToken, "DOCTYPE", null, text, _start));
                 Next();
             }
             else
@@ -302,7 +330,7 @@ namespace htmlParser
             if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.BogusCommentToken, null, null, text, _start));
+                _tokens.Add(new Token(TokenKind.BogusCommentToken, "wrong comment", null, text, _start));
                 Next();
             }
         }
@@ -337,7 +365,7 @@ namespace htmlParser
             else if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.CommentToken, null, null, text, _start));
+                _tokens.Add(new Token(TokenKind.CommentToken, "text comment", null, text, _start));
                 Next();
             }
             else
@@ -429,7 +457,7 @@ namespace htmlParser
                 AfterAttrNameState();
             else if (Current == '/' || char.IsLetter(Current)) // Если "/" - значит самозакрывающийся тэг, если символ - значит начало имени след атрибута
             {
-                _attrs.Add(Stringify(_attrName), "True".ToString());
+                _attrs.Add(Stringify(_attrName), ["True".ToString()]);
                 _attrName.Clear();
                 _attrName.Add(Current);
 
@@ -483,9 +511,15 @@ namespace htmlParser
 
             if (Current == '\'')
             {
-                _attrs.Add(Stringify(_attrName), Stringify(_attrValue));
+                var attrName = Stringify(_attrName);
+                var attrValue = Stringify(_attrValue);
+
+                if (attrName == "class")
+                    _attrs.Add(attrName, attrValue.Split());
+                else
+                    _attrs.Add(attrName, [attrValue]);
                 _attrName.Clear();
-                _attrName.Add(Current);
+                _attrValue.Clear();
                 AfterTagNameState();
             }
             else
@@ -501,7 +535,13 @@ namespace htmlParser
 
             if (Current == '"')
             {
-                _attrs.Add(Stringify(_attrName), Stringify(_attrValue));
+                var attrName = Stringify(_attrName);
+                var attrValue = Stringify(_attrValue);
+
+                if (attrName == "class")
+                    _attrs.Add(attrName, attrValue.Split());
+                else
+                    _attrs.Add(attrName, [attrValue]);
                 _attrName.Clear();
                 _attrValue.Clear();
                 AfterTagNameState();
@@ -522,7 +562,8 @@ namespace htmlParser
             else if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.SelfClosingTagToken, Stringify(_openTagName), _attrs, text, _start));
+                _tokens.Add(new Token(TokenKind.SelfClosingTagToken, Stringify(_openTagName), DictCopy(_attrs), text, _start));
+                _attrs.Clear();
                 Next();
             }
             else
