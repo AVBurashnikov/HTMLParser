@@ -1,9 +1,4 @@
-﻿using System.Data;
-using System.Reflection.PortableExecutable;
-using System.Text;
-using System.Text.RegularExpressions;
-using Microsoft.VisualBasic;
-using static System.Net.Mime.MediaTypeNames;
+﻿using System.Text;
 
 namespace htmlParser
 {
@@ -13,8 +8,10 @@ namespace htmlParser
         {
             var sr = new StreamReader("file.html");
             var data = sr.ReadToEnd();
+
             var tokenizer = new Tokenizer();
             var tokens = tokenizer.Parse(data);
+
             foreach(var token in tokens)
                 Console.WriteLine(token);
         }
@@ -43,32 +40,32 @@ namespace htmlParser
 
         public override string ToString()
         {
-            var sb = new StringBuilder();
+            var builder = new StringBuilder();
 
-            sb.Append($"{Kind}: {TagName}, position={position}\n");
+            builder.Append($"{Kind}: {TagName}, position={position}\n");
 
             if (Attributes is not null)
             {
-                sb.Append($"Attributes:\n");
+                builder.Append($"Attributes:\n");
                 foreach(KeyValuePair<string, string[]> attr in Attributes)
                 {
-                    sb.Append($"\t{attr.Key.ToString()} = ");
+                    builder.Append($"\t{attr.Key.ToString()} = ");
 
                     if (attr.Key == "class")
                     {
-                        sb.Append("[ ");
+                        builder.Append("[ ");
                         foreach (string attrValue in attr.Value)
-                            sb.Append($"{attrValue}, ");
-                        sb.Append(']');
+                            builder.Append($"{attrValue}, ");
+                        builder.Append("]\n");
                     }
                     else
-                        sb.Append(attr.Value[0].ToString() + '\n');
+                        builder.Append($"'{attr.Value[0]}'\n");
                 }
             }
 
-            sb.Append('\n');
+            builder.Append('\n');
 
-            return sb.ToString();
+            return builder.ToString();
         }
     }
 
@@ -77,14 +74,14 @@ namespace htmlParser
         private string _markup = string.Empty;
         private int _start = 0;
         private int _position = 0;
-        private bool _pauseParsing = false;
+        private bool _stopParsing = false;
 
         private List<Token> _tokens = [];
         private Dictionary<string, string[]> _attrs = [];
-        private List<char> _openTagName = [];
-        private List<char> _closingTagName = [];
-        private List<char> _attrName = [];
-        private List<char> _attrValue = [];
+        private StringBuilder _openTagName = new ();
+        private StringBuilder _closingTagName = new();
+        private StringBuilder _attrName = new();
+        private StringBuilder _attrValue = new();
 
         private char Current 
         {
@@ -98,25 +95,14 @@ namespace htmlParser
             }
         }
 
-        private int Next() => _position++;
+        private int NextChar() => _position++;
 
-        private string Next(int offset)
+        private string NextChar(int offset)
         {
             if (_position + offset < _markup.Length)
                 return _markup.Substring(_position, offset);
             else
                 return _markup.Substring(_position);
-        }
-
-        public string Stringify(List<char> chars)
-        {
-            if (chars.Count == 0)
-                return "";
-
-            var sb = new StringBuilder();
-            foreach (char c in chars)
-                sb.Append(c);
-            return sb.ToString();
         }
 
         private Dictionary<string, string[]> DictCopy(Dictionary<string, string[]> dict)
@@ -152,23 +138,23 @@ namespace htmlParser
         {
             if (Current == '\n' || Current == '\r' || Current == '\t' || Current == ' ' || Current == '\0')
             {
-                Next();
+                NextChar();
                 DataState();
             }
-            else if (!_pauseParsing && Current == '<') // <...
+            else if (!_stopParsing && Current == '<') // <...
             {
                 _start = _position;
                 BeforeTagState();
             }
-            else if (_pauseParsing && Current == '<')
-            {
-                Next();
-                if (Current == '/')
-                {
-                    _pauseParsing = false;
-                    BeforeClosingTagState();
-                }
-            }
+            //else if (_stopParsing && Current == '<')
+            //{
+            //    NextChar();
+            //    if (Current == '/')
+            //    {
+            //        _stopParsing = false;
+            //        BeforeClosingTagState();
+            //    }
+            //}
             else // Any text content
             {
                 _start = _position;
@@ -178,8 +164,27 @@ namespace htmlParser
 
         private void ContentState()
         {
-            Next();
+            NextChar();
 
+            while (true)
+            {
+                if (Current == '<')
+                {
+                    NextChar();
+
+                    if (Current == '/')
+                    {
+                        var text = _markup.Substring(_start, _position - _start - 1);
+                        _tokens.Add(new Token(TokenKind.ContentToken, "text element", null, text.Trim(), _start));
+
+                        _start = _position - 1;
+                        BeforeClosingTagState();
+                        break;
+                    }
+                }
+                NextChar();
+            }
+            /*
             if (Current == '<')
             {
                 if (!_pauseParsing)
@@ -191,7 +196,7 @@ namespace htmlParser
                 }
                 else
                 {
-                    Next();
+                    NextChar();
 
                     if (Current == '/')
                     {
@@ -207,12 +212,12 @@ namespace htmlParser
                     
             }
             else
-                ContentState();
+                ContentState();*/
         }
 
         private void BeforeTagState()
         {
-            Next();
+            NextChar();
 
             if (Current == '!') // <!--... , <!DOCTYPE..., <!...  
             {
@@ -225,21 +230,21 @@ namespace htmlParser
             else if (char.IsLetter(Current)) // <a...
             {
                 _openTagName.Clear();
-                _openTagName.Add(Current);  
+                _openTagName.Append(Current);  
                 TagNameState();
             }
             else
             {
-                ParseError($"Invalid character '{Current}' in this context! {_position}");
+                ParseError($"Invalid character '{_markup[_position-1]}{Current}{_markup[_position + 1]}' in this context! {_position}");
             }
         }
 
         private void ExclamationMarkTagState()
         {
-            Next();
+            NextChar();
             if (Current == '-') // <!-...
             {
-                Next();
+                NextChar();
                 if (Current == '-') // <!--...
                     BeforeCommentState();
                 else
@@ -253,39 +258,38 @@ namespace htmlParser
 
         private void BeforeClosingTagState()
         {
-            Next();
+            NextChar();
 
             if (Current == ' ')
                 BeforeClosingTagState();
             else if (Current == '>')
-                ParseError($"Invalid closing tag! {_position}");
+                ParseError($"Invalid closing tag '{_markup[_position - 1]}{Current}{_markup[_position + 1]}'! {_position}");
             else if (char.IsLetter(Current) || char.IsDigit(Current))
             {
                 _closingTagName.Clear();
-                _closingTagName.Add(Current);
+                _closingTagName.Append(Current);
                 ClosingTagNameState();
             }
         }
 
         private void ClosingTagNameState()
         {
-            Next();
+            NextChar();
 
             if (char.IsLetter(Current) || char.IsDigit(Current))
             {
-                _closingTagName.Add(Current);
+                _closingTagName.Append(Current);
                 ClosingTagNameState();
             }
             else if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                var tagName = Stringify(_closingTagName);
                 
-                _tokens.Add(new Token(TokenKind.ClosingTagToken, tagName, null, text, _start));
-                Next();
+                _tokens.Add(new Token(TokenKind.ClosingTagToken, _closingTagName.ToString(), null, text, _start));
+                NextChar();
                 
-                if (tagName == "script" || tagName == "style")
-                    _pauseParsing = false;
+                //if (tagName == "script" || tagName == "style")
+                //    _stopParsing = false;
             }
         }        
 
@@ -293,7 +297,7 @@ namespace htmlParser
         //  <!DOCTYPE html>
         //  <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
         {
-            string text = Next(7);
+            string text = NextChar(7);
             if (text == "DOCTYPE")
             {
                 _position += "DOCTYPE".Length;
@@ -310,14 +314,14 @@ namespace htmlParser
 
         private void DoctypeValueState()
         {
-            Next();
+            NextChar();
             if (Current == ' ')
                 DoctypeValueState();
             else if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
                 _tokens.Add(new Token(TokenKind.DoctypeToken, "DOCTYPE", null, text, _start));
-                Next();
+                NextChar();
             }
             else
                 DoctypeValueState();
@@ -325,19 +329,19 @@ namespace htmlParser
 
         private void BogusCommentState()
         {
-            Next();
+            NextChar();
 
             if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
                 _tokens.Add(new Token(TokenKind.BogusCommentToken, "wrong comment", null, text, _start));
-                Next();
+                NextChar();
             }
         }
 
         private void BeforeCommentState()
         {
-            Next();
+            NextChar();
             if (Current == ' ')
                 BeforeCommentState();
             else if (Current == '-')
@@ -348,7 +352,7 @@ namespace htmlParser
 
         private void CommentState()
         {
-            Next();
+            NextChar();
 
             if (Current == '-')
                 AfterCommentState();
@@ -358,7 +362,7 @@ namespace htmlParser
 
         private void AfterCommentState()
         {
-            Next();
+            NextChar();
 
             if (Current == '-')
                 AfterCommentState();
@@ -366,7 +370,7 @@ namespace htmlParser
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
                 _tokens.Add(new Token(TokenKind.CommentToken, "text comment", null, text, _start));
-                Next();
+                NextChar();
             }
             else
                 CommentState();
@@ -374,92 +378,98 @@ namespace htmlParser
 
         private void TagNameState()
         {
-            Next();
+            NextChar();
 
             if (char.IsLetter(Current) || char.IsDigit(Current) || Current == '-') // Letters and minus sign(for custom html-elements)
             {
-                _openTagName.Add(Current);
+                _openTagName.Append(Current);
                 TagNameState();
             }
             else if (Current == '>') // Create open tag token
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                var tagName = Stringify(_openTagName);
 
-                _tokens.Add(new Token(TokenKind.OpenTagToken, tagName, DictCopy(_attrs), text, _start));
-                Next();
+                _tokens.Add(new Token(TokenKind.OpenTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
+                NextChar();
                 _attrs.Clear();
 
-                if (tagName == "script" || tagName == "style")
-                    _pauseParsing = true;
+                //if (tagName == "script" || tagName == "style")
+                //    _stopParsing = true;
             }
 
-            else if (Current == ' ') // If tag has attributes
+            else if (Current == ' ' || Current == '\n' || Current == '\r' || Current == '\t') // If tag has attributes
                 AfterTagNameState();
 
             else if (Current == '/') // Looks like self-closing
                 AfterSelfClosingTagState();
 
             else
-                ParseError($"Bad token name: char '{Current}' must not contains in tag name! {_position}");
+                ParseError($"Bad token name: char '{_markup[_position - 1]}{Current}{_markup[_position + 1]}' must not contains in tag name! {_position}");
         }
 
         private void AfterTagNameState()
         {
-            Next();
+            NextChar();
 
-            if (Current == ' ') // One or more spaces after tag name
+            if (Current == ' ' || Current == '\n' || Current == '\t' || Current == '\r') // One or more spaces after tag name
                 AfterTagNameState();
             else if (Current == '>') // Create open tag token
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                var tagName = Stringify(_openTagName);
 
-                _tokens.Add(new Token(TokenKind.OpenTagToken, tagName, DictCopy(_attrs), text, _start));
-                Next();
+                _tokens.Add(new Token(TokenKind.OpenTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
+                NextChar();
                 _attrs.Clear();
 
-                if (tagName == "script" || tagName == "style")
-                    _pauseParsing = true;
+                //if (tagName == "script" || tagName == "style")
+                //    _stopParsing = true;
             }
             else if (char.IsLetter(Current))
             {
-                _attrName.Add(Current);
+                _attrName.Append(Current);
                 AttrNameState();
             }
             else if (Current == '/')
                 AfterSelfClosingTagState();
             else
-                ParseError($"Invalid character '{Current}' in this context! {_position}");
+                ParseError($"Invalid character '{_markup[_position - 1]}{Current}{_markup[_position + 1]}' in this context! {_position}");
         }
 
         private void AttrNameState()
         {
-            Next();
-            if (Current == '-' || char.IsLetter(Current)) // Допскаем что имя атрибута может содержать тире
+            NextChar();
+            if (Current == '-' || char.IsLetter(Current) || Current == '_') // Допскаем что имя атрибута может содержать тире
             {
-                _attrName.Add(Current);
+                _attrName.Append(Current);
                 AttrNameState();
+            }
+            else if (Current == '>')
+            {
+                var text = _markup.Substring(_start, _position - _start + 1);
+
+                _tokens.Add(new Token(TokenKind.OpenTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
+                _attrs.Add(_attrName.ToString(), ["True"]);
+                _attrName.Clear();
             }
             else if (Current == ' ') // Считаем что после имени атрибута может быть один или несколько пробелов
                 AfterAttrNameState();
             else if (Current == '=') // Имя аттрибута закончилось
                 BeforeAttrValueState();
             else
-                ParseError($"Invalid character '{Current}' in attr-name! {_position}");
+                ParseError($"Invalid character '{_markup[_position - 2]}{_markup[_position - 1]}{Current}{_markup[_position + 1]}{_markup[_position + 2]}' in attr-name! {_position}");
         }
 
         private void AfterAttrNameState()
         {
-            Next();
+            NextChar();
 
             if (Current == ' ') // Считаем что после имени атрибута может быть один или несколько пробелов, пропускаем их
                 AfterAttrNameState();
-            else if (Current == '/' || char.IsLetter(Current)) // Если "/" - значит самозакрывающийся тэг, если символ - значит начало имени след атрибута
+            else if (Current == '/' || char.IsLetter(Current) || Current == '>') // Если "/" - значит самозакрывающийся тэг, если символ - значит начало имени след атрибута
             {
-                _attrs.Add(Stringify(_attrName), ["True".ToString()]);
+                _attrs.Add(_attrName.ToString(), ["True"]);
                 _attrName.Clear();
-                _attrName.Add(Current);
+                _attrName.Append(Current);
 
                 if (Current == '/')
                     AfterSelfClosingTagState();
@@ -469,12 +479,12 @@ namespace htmlParser
             else if (Current == '=') // Считаем что имя атрибута закончено
                 BeforeAttrValueState();
             else
-                ParseError($"Invalid character '{Current}' before attr-name! {_position}");
+                ParseError($"Invalid character '{_markup[_position - 1]}{Current}{_markup[_position + 1]}' before attr-name! {_position}");
         }
 
         private void BeforeAttrValueState()
         {
-            Next();
+            NextChar();
             if (Current == ' ') // Считаем что перед значением атрибута может быть один или несколько пробелов, пропускаем их
                 BeforeAttrValueState();
             else if (Current == '"') // Ждем значения атрибута в двойных кавычках
@@ -484,18 +494,18 @@ namespace htmlParser
             else if (char.IsLetter(Current)) // Ждем значения атрибута без кавычек
                 UnquotedAttrValueState();
             else
-                ParseError($"Invalid character '{Current}' before attr-value! {_position}");
+                ParseError($"Invalid character '{_markup[_position - 1]}{Current}{_markup[_position + 1]}' before attr-value! {_position}");
         }
 
         private void UnquotedAttrValueState()
         {
-            Next();
+            NextChar();
 
             if (Current == ' ')
                 AfterUnquotedAttrValueState();
             else
             {
-                _attrValue.Add(Current);
+                _attrValue.Append(Current);
                 UnquotedAttrValueState();
             }
         }
@@ -507,13 +517,13 @@ namespace htmlParser
 
         private void SingleQuotedAttrValueState()
         {
-            Next();
+            NextChar();
+
+            var attrName = _attrName.ToString();
+            var attrValue = _attrValue.ToString();
 
             if (Current == '\'')
             {
-                var attrName = Stringify(_attrName);
-                var attrValue = Stringify(_attrValue);
-
                 if (attrName == "class")
                     _attrs.Add(attrName, attrValue.Split());
                 else
@@ -524,19 +534,19 @@ namespace htmlParser
             }
             else
             {
-                _attrValue.Add(Current);
+                _attrValue.Append(Current);
                 SingleQuotedAttrValueState();
             }
         }
 
         private void DoubleQuotedAttrValueState()
         {
-            Next();
+            NextChar();
 
             if (Current == '"')
             {
-                var attrName = Stringify(_attrName);
-                var attrValue = Stringify(_attrValue);
+                var attrName = _attrName.ToString();
+                var attrValue = _attrValue.ToString();
 
                 if (attrName == "class")
                     _attrs.Add(attrName, attrValue.Split());
@@ -548,26 +558,26 @@ namespace htmlParser
             }
             else
             {
-                _attrValue.Add(Current);
+                _attrValue.Append(Current);
                 DoubleQuotedAttrValueState();
             }
         }
 
         private void AfterSelfClosingTagState()
         {
-            Next();
+            NextChar();
 
             if (Current == ' ')
                 AfterSelfClosingTagState();
             else if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.SelfClosingTagToken, Stringify(_openTagName), DictCopy(_attrs), text, _start));
+                _tokens.Add(new Token(TokenKind.SelfClosingTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
                 _attrs.Clear();
-                Next();
+                NextChar();
             }
             else
-                ParseError($"Invalid character '{Current}' after '/'!");
+                ParseError($"Invalid character '{_markup[_position - 1]}{Current}{_markup[_position + 1]}' after '/'!");
         }
 
         private void ParseError(string message)
