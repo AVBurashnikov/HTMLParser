@@ -6,14 +6,17 @@ namespace htmlParser
     {
         public static void Main()
         {
+            var startTime = Environment.TickCount;
             var sr = new StreamReader("file.html");
             var data = sr.ReadToEnd();
-
             var tokenizer = new Tokenizer();
             var tokens = tokenizer.Parse(data);
 
             foreach(var token in tokens)
                 Console.WriteLine(token);
+            Console.WriteLine("-------------------------");
+            Console.WriteLine($"Program timing is: {Environment.TickCount - startTime}ms");
+            Console.ReadKey();
         }
     }
 
@@ -126,8 +129,10 @@ namespace htmlParser
             else
                 return [];
 
-            while (_position < markup.Length)
+            while (true)
             {
+                if (Current == '\0')
+                    break;
                 DataState();
             }
 
@@ -136,7 +141,7 @@ namespace htmlParser
 
         private void DataState()
         {
-            if (Current == '\n' || Current == '\r' || Current == '\t' || Current == ' ' || Current == '\0')
+            if (Current == '\n' || Current == '\r' || Current == '\t' || Current == ' ')
             {
                 NextChar();
                 DataState();
@@ -168,6 +173,9 @@ namespace htmlParser
 
             while (true)
             {
+                if (Current == '\0')
+                    break;
+
                 if (Current == '<')
                 {
                     NextChar();
@@ -184,35 +192,6 @@ namespace htmlParser
                 }
                 NextChar();
             }
-            /*
-            if (Current == '<')
-            {
-                if (!_pauseParsing)
-                {
-                    var text = _markup.Substring(_start, _position - _start);
-                    _tokens.Add(new Token(TokenKind.ContentToken, "text element", null, text.Trim(), _start));
-                    
-                    DataState();
-                }
-                else
-                {
-                    NextChar();
-
-                    if (Current == '/')
-                    {
-                        var text = _markup.Substring(_start, _position - _start - 1);
-                        _tokens.Add(new Token(TokenKind.ContentToken, "text element", null, text.Trim(), _start));
-
-                        _start = _position - 1;
-                        BeforeClosingTagState();
-                    }
-                    else
-                        ContentState();
-                }
-                    
-            }
-            else
-                ContentState();*/
         }
 
         private void BeforeTagState()
@@ -235,7 +214,7 @@ namespace htmlParser
             }
             else
             {
-                ParseError($"Invalid character '{_markup[_position-1]}{Current}{_markup[_position + 1]}' in this context! {_position}");
+                ParseError($"Error tag parsing '{_markup.Substring(_position-10, 20)}'");
             }
         }
 
@@ -263,7 +242,7 @@ namespace htmlParser
             if (Current == ' ')
                 BeforeClosingTagState();
             else if (Current == '>')
-                ParseError($"Invalid closing tag '{_markup[_position - 1]}{Current}{_markup[_position + 1]}'! {_position}");
+                ParseError($"Invalid closing tag '{_markup.Substring(_position - 10, 20)}'!");
             else if (char.IsLetter(Current) || char.IsDigit(Current))
             {
                 _closingTagName.Clear();
@@ -287,9 +266,6 @@ namespace htmlParser
                 
                 _tokens.Add(new Token(TokenKind.ClosingTagToken, _closingTagName.ToString(), null, text, _start));
                 NextChar();
-                
-                //if (tagName == "script" || tagName == "style")
-                //    _stopParsing = false;
             }
         }        
 
@@ -404,7 +380,7 @@ namespace htmlParser
                 AfterSelfClosingTagState();
 
             else
-                ParseError($"Bad token name: char '{_markup[_position - 1]}{Current}{_markup[_position + 1]}' must not contains in tag name! {_position}");
+                ParseError($"Error tag name parsing '{_markup.Substring(_position - 10, 20)}'");
         }
 
         private void AfterTagNameState()
@@ -432,7 +408,7 @@ namespace htmlParser
             else if (Current == '/')
                 AfterSelfClosingTagState();
             else
-                ParseError($"Invalid character '{_markup[_position - 1]}{Current}{_markup[_position + 1]}' in this context! {_position}");
+                ParseError($"Error after tag parsing '{_markup.Substring(_position - 10, 20)}'!");
         }
 
         private void AttrNameState()
@@ -456,7 +432,7 @@ namespace htmlParser
             else if (Current == '=') // Имя аттрибута закончилось
                 BeforeAttrValueState();
             else
-                ParseError($"Invalid character '{_markup[_position - 2]}{_markup[_position - 1]}{Current}{_markup[_position + 1]}{_markup[_position + 2]}' in attr-name! {_position}");
+                ParseError($"Error attr name parsing '{_markup.Substring(_position - 10, 20)}'!");
         }
 
         private void AfterAttrNameState()
@@ -479,7 +455,7 @@ namespace htmlParser
             else if (Current == '=') // Считаем что имя атрибута закончено
                 BeforeAttrValueState();
             else
-                ParseError($"Invalid character '{_markup[_position - 1]}{Current}{_markup[_position + 1]}' before attr-name! {_position}");
+                ParseError($"Error after attr name parsing '{_markup.Substring(_position - 10, 20)}'!");
         }
 
         private void BeforeAttrValueState()
@@ -491,18 +467,37 @@ namespace htmlParser
                 DoubleQuotedAttrValueState();
             else if (Current == '\'') // Ждем значения атрибута в одинарных кавычках
                 SingleQuotedAttrValueState();
-            else if (char.IsLetter(Current)) // Ждем значения атрибута без кавычек
+            else if (char.IsLetterOrDigit(Current) || Current == '#' || Current == '/') // Ждем значения атрибута без кавычек
+            {
+                _attrValue.Append(Current);
                 UnquotedAttrValueState();
+            }
             else
-                ParseError($"Invalid character '{_markup[_position - 1]}{Current}{_markup[_position + 1]}' before attr-value! {_position}");
+                ParseError($"Error before attr name parsing '{_markup.Substring(_position - 10, 20)}'!");
         }
 
         private void UnquotedAttrValueState()
         {
             NextChar();
 
-            if (Current == ' ')
-                AfterUnquotedAttrValueState();
+            if (Current == ' ' || Current == '\n' || Current == '\r' || Current == '\t')
+            {
+                _attrs.Add(_attrName.ToString(), [_attrValue.ToString()]);
+                _attrName.Clear();
+                _attrValue.Clear();
+                AfterTagNameState();
+            }
+            else if (Current == '>')
+            {
+                _attrs.Add(_attrName.ToString(), [_attrValue.ToString()]);
+                _attrName.Clear();
+                _attrValue.Clear();
+
+                var text = _markup.Substring(_start, _position - _start + 1);
+                _tokens.Add(new Token(TokenKind.OpenTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
+                _attrs.Clear();
+                NextChar();
+            }
             else
             {
                 _attrValue.Append(Current);
@@ -510,20 +505,15 @@ namespace htmlParser
             }
         }
 
-        private void AfterUnquotedAttrValueState()
-        {
-            throw new NotImplementedException();
-        }
-
         private void SingleQuotedAttrValueState()
         {
             NextChar();
 
-            var attrName = _attrName.ToString();
-            var attrValue = _attrValue.ToString();
-
             if (Current == '\'')
             {
+                var attrName = _attrName.ToString();
+                var attrValue = _attrValue.ToString();
+
                 if (attrName == "class")
                     _attrs.Add(attrName, attrValue.Split());
                 else
@@ -552,6 +542,7 @@ namespace htmlParser
                     _attrs.Add(attrName, attrValue.Split());
                 else
                     _attrs.Add(attrName, [attrValue]);
+
                 _attrName.Clear();
                 _attrValue.Clear();
                 AfterTagNameState();
@@ -577,7 +568,7 @@ namespace htmlParser
                 NextChar();
             }
             else
-                ParseError($"Invalid character '{_markup[_position - 1]}{Current}{_markup[_position + 1]}' after '/'!");
+                ParseError($"Error selfclosing tag parsing '{_markup.Substring(_position-10, 20)}'!");
         }
 
         private void ParseError(string message)
