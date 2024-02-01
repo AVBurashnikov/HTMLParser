@@ -45,7 +45,7 @@ namespace htmlParser
         {
             var builder = new StringBuilder();
 
-            builder.Append($"{Kind}: {TagName}, position={position}\n");
+            builder.Append($"{Kind}: {TagName}, position={Position}\n");
 
             if (Attributes is not null)
             {
@@ -58,7 +58,7 @@ namespace htmlParser
                     {
                         builder.Append("[ ");
                         foreach (string attrValue in attr.Value)
-                            builder.Append($"{attrValue}, ");
+                            builder.Append($"'{attrValue}', ");
                         builder.Append("]\n");
                     }
                     else
@@ -99,6 +99,8 @@ namespace htmlParser
         }
 
         private int NextChar() => _position++;
+
+        private int PrevChar() => _position--;
 
         private string NextChar(int offset)
         {
@@ -414,7 +416,7 @@ namespace htmlParser
         private void AttrNameState()
         {
             NextChar();
-            if (Current == '-' || char.IsLetter(Current) || Current == '_') // Допскаем что имя атрибута может содержать тире
+            if (Current == '-' || char.IsLetter(Current) || Current == '_' || Current == ':') // Допскаем что имя атрибута может содержать тире
             {
                 _attrName.Append(Current);
                 AttrNameState();
@@ -423,12 +425,17 @@ namespace htmlParser
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
 
+                _attrs.Add(_attrName.ToString(), ["true"]);
                 _tokens.Add(new Token(TokenKind.OpenTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
-                _attrs.Add(_attrName.ToString(), ["True"]);
                 _attrName.Clear();
+                _attrs.Clear();
+                NextChar();
             }
-            else if (Current == ' ') // Считаем что после имени атрибута может быть один или несколько пробелов
+            else if (Current == ' ' || Current == '\n' || Current == '\r' || Current == '\t' || Current == '/')
+            {
+                PrevChar();
                 AfterAttrNameState();
+            }
             else if (Current == '=') // Имя аттрибута закончилось
                 BeforeAttrValueState();
             else
@@ -439,23 +446,26 @@ namespace htmlParser
         {
             NextChar();
 
-            if (Current == ' ') // Считаем что после имени атрибута может быть один или несколько пробелов, пропускаем их
+            if (Current == ' ' || Current == '\n' || Current == '\r' || Current == '\t')
                 AfterAttrNameState();
-            else if (Current == '/' || char.IsLetter(Current) || Current == '>') // Если "/" - значит самозакрывающийся тэг, если символ - значит начало имени след атрибута
+            else if (Current == '/' || char.IsLetter(Current) || Current == '>')
             {
-                _attrs.Add(_attrName.ToString(), ["True"]);
+                _attrs.Add(_attrName.ToString(), ["true"]);
                 _attrName.Clear();
                 _attrName.Append(Current);
 
                 if (Current == '/')
                     AfterSelfClosingTagState();
                 else
+                {
+                    PrevChar();
                     AttrNameState();
+                }
             }
             else if (Current == '=') // Считаем что имя атрибута закончено
                 BeforeAttrValueState();
             else
-                ParseError($"Error after attr name parsing '{_markup.Substring(_position - 10, 20)}'!");
+                ParseError($"Error after attr name parsing '{_markup.Substring(_position - 10, 20)}'! {_position}");
         }
 
         private void BeforeAttrValueState()
