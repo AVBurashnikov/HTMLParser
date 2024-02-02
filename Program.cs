@@ -9,11 +9,13 @@ namespace htmlParser
             var startTime = Environment.TickCount;
             var sr = new StreamReader("file.html");
             var data = sr.ReadToEnd();
+            
             var tokenizer = new Tokenizer();
             var tokens = tokenizer.Parse(data);
 
             foreach(var token in tokens)
                 Console.WriteLine(token);
+
             Console.WriteLine("-------------------------");
             Console.WriteLine($"Program timing is: {Environment.TickCount - startTime}ms");
             Console.ReadKey();
@@ -45,7 +47,7 @@ namespace htmlParser
         {
             var builder = new StringBuilder();
 
-            builder.Append($"{Kind}: {TagName}, position={Position}\n");
+            builder.Append($"{Kind}: {TagName}, position='{Position}' text='{Text}'\n");
 
             if (Attributes is not null)
             {
@@ -74,11 +76,24 @@ namespace htmlParser
 
     class Tokenizer
     {
+        private readonly string DOCTYPE = "DOCTYPE";
+        private readonly char EOF = '\0';
+        private readonly char GT = '>';
+        private readonly char LT = '<';
+        private readonly char EXCLAMATION_MARK = '!';
+        private readonly char EQUALS = '=';
+        private readonly char SINGLE_QUOTE = '\'';
+        private readonly char DOUBLE_QUOTE = '"';
+        private readonly char UNDERSCORE = '_';
+        private readonly char F_SLASH = '/';
+        private readonly char B_SLASH = '\\';
+        private readonly char DASH = '-';
+        private readonly char COLON = ':';
+        private readonly char SHARP = '#';
+
         private string _markup = string.Empty;
         private int _start = 0;
         private int _position = 0;
-        private bool _stopParsing = false;
-
         private List<Token> _tokens = [];
         private Dictionary<string, string[]> _attrs = [];
         private StringBuilder _openTagName = new ();
@@ -86,21 +101,35 @@ namespace htmlParser
         private StringBuilder _attrName = new();
         private StringBuilder _attrValue = new();
 
+        public List<Token> Parse(string markup) 
+        {
+            if (string.IsNullOrEmpty(markup))
+                return [];
+            
+            _markup = markup;
+
+            while (Current != EOF)
+            {
+                DataState();
+            }
+
+            return _tokens;
+        }
+
         private char Current 
         {
             get 
             {
                 if (_position >= _markup.Length) 
-                {
-                    return '\0';
-                }
+                    return EOF;
+                
                 return _markup[_position];
             }
         }
 
-        private int NextChar() => _position++;
+        private void PrevChar() => _position--;
 
-        private int PrevChar() => _position--;
+        private void NextChar() => _position++;
 
         private string NextChar(int offset)
         {
@@ -110,7 +139,7 @@ namespace htmlParser
                 return _markup.Substring(_position);
         }
 
-        private Dictionary<string, string[]> DictCopy(Dictionary<string, string[]> dict)
+        private static Dictionary<string, string[]>? DictCopy(Dictionary<string, string[]> dict)
         {
             var newDict = new Dictionary<string, string[]>();
 
@@ -124,45 +153,20 @@ namespace htmlParser
             return newDict;
         }
 
-        public List<Token> Parse(string markup) 
-        {
-            if (!string.IsNullOrEmpty(markup))
-                _markup = markup;
-            else
-                return [];
-
-            while (true)
-            {
-                if (Current == '\0')
-                    break;
-                DataState();
-            }
-
-            return _tokens;
-        }
-
         private void DataState()
         {
-            if (Current == '\n' || Current == '\r' || Current == '\t' || Current == ' ')
+            if (char.IsWhiteSpace(Current))
             {
                 NextChar();
-                DataState();
+                if (Current != EOF)
+                    DataState();
             }
-            else if (!_stopParsing && Current == '<') // <...
+            else if (Current == LT)
             {
                 _start = _position;
                 BeforeTagState();
             }
-            //else if (_stopParsing && Current == '<')
-            //{
-            //    NextChar();
-            //    if (Current == '/')
-            //    {
-            //        _stopParsing = false;
-            //        BeforeClosingTagState();
-            //    }
-            //}
-            else // Any text content
+            else
             {
                 _start = _position;
                 ContentState();
@@ -175,14 +179,17 @@ namespace htmlParser
 
             while (true)
             {
-                if (Current == '\0')
+                if (Current == EOF)
+                {
+                    var text = _markup.Substring(_start, _position - _start);
+                    _tokens.Add(new Token(TokenKind.ContentToken, "text element", null, text.Trim(), _start));
                     break;
-
-                if (Current == '<')
+                }
+                if (Current == LT)
                 {
                     NextChar();
 
-                    if (Current == '/')
+                    if (Current == F_SLASH)
                     {
                         var text = _markup.Substring(_start, _position - _start - 1);
                         _tokens.Add(new Token(TokenKind.ContentToken, "text element", null, text.Trim(), _start));
@@ -200,11 +207,11 @@ namespace htmlParser
         {
             NextChar();
 
-            if (Current == '!') // <!--... , <!DOCTYPE..., <!...  
+            if (Current == EXCLAMATION_MARK) // <!--... , <!DOCTYPE..., <!...  
             {
                 ExclamationMarkTagState();
             }
-            else if (Current == '/') // </...
+            else if (Current == F_SLASH) // </...
             {
                 BeforeClosingTagState();
             }
@@ -223,15 +230,15 @@ namespace htmlParser
         private void ExclamationMarkTagState()
         {
             NextChar();
-            if (Current == '-') // <!-...
+            if (Current == DASH) // <!-...
             {
                 NextChar();
-                if (Current == '-') // <!--...
+                if (Current == DASH) // <!--...
                     BeforeCommentState();
                 else
                     BogusCommentState();
             }
-            else if (Current == 'D') // <!D...
+            else if ("dD".Contains(Current)) // <!D... || <!d...
                 DoctypeState();
             else
                 BogusCommentState();
@@ -241,9 +248,9 @@ namespace htmlParser
         {
             NextChar();
 
-            if (Current == ' ')
+            if (char.IsWhiteSpace(Current))
                 BeforeClosingTagState();
-            else if (Current == '>')
+            else if (Current == GT)
                 ParseError($"Invalid closing tag '{_markup.Substring(_position - 10, 20)}'!");
             else if (char.IsLetter(Current) || char.IsDigit(Current))
             {
@@ -257,12 +264,12 @@ namespace htmlParser
         {
             NextChar();
 
-            if (char.IsLetter(Current) || char.IsDigit(Current))
+            if (char.IsLetterOrDigit(Current))
             {
                 _closingTagName.Append(Current);
                 ClosingTagNameState();
             }
-            else if (Current == '>')
+            else if (Current == GT)
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
                 
@@ -272,30 +279,28 @@ namespace htmlParser
         }        
 
         private void DoctypeState() 
-        //  <!DOCTYPE html>
-        //  <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
         {
-            string text = NextChar(7);
-            if (text == "DOCTYPE")
+            string part = NextChar(DOCTYPE.Length).ToUpper();
+
+            if (part.Equals(DOCTYPE))
             {
-                _position += "DOCTYPE".Length;
+                _position += DOCTYPE.Length;
                 
-                if (Current == ' ')
+                if (char.IsWhiteSpace(Current))
                     DoctypeValueState();
                 else
                     ParseError("Invalid DOCTYPE section!");
             }
             else
                 ParseError("Invalid DOCTYPE section!");
-
         }
 
         private void DoctypeValueState()
         {
             NextChar();
-            if (Current == ' ')
+            if (char.IsWhiteSpace(Current))
                 DoctypeValueState();
-            else if (Current == '>')
+            else if (Current == GT)
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
                 _tokens.Add(new Token(TokenKind.DoctypeToken, "DOCTYPE", null, text, _start));
@@ -309,7 +314,7 @@ namespace htmlParser
         {
             NextChar();
 
-            if (Current == '>')
+            if (Current == GT)
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
                 _tokens.Add(new Token(TokenKind.BogusCommentToken, "wrong comment", null, text, _start));
@@ -320,9 +325,9 @@ namespace htmlParser
         private void BeforeCommentState()
         {
             NextChar();
-            if (Current == ' ')
+            if (char.IsWhiteSpace(Current))
                 BeforeCommentState();
-            else if (Current == '-')
+            else if (Current == DASH)
                 AfterCommentState();
             else
                 CommentState();
@@ -332,7 +337,7 @@ namespace htmlParser
         {
             NextChar();
 
-            if (Current == '-')
+            if (Current == DASH)
                 AfterCommentState();
             else
                 CommentState();
@@ -342,9 +347,9 @@ namespace htmlParser
         {
             NextChar();
 
-            if (Current == '-')
+            if (Current == DASH)
                 AfterCommentState();
-            else if (Current == '>')
+            else if (Current == GT)
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
                 _tokens.Add(new Token(TokenKind.CommentToken, "text comment", null, text, _start));
@@ -358,27 +363,24 @@ namespace htmlParser
         {
             NextChar();
 
-            if (char.IsLetter(Current) || char.IsDigit(Current) || Current == '-') // Letters and minus sign(for custom html-elements)
+            if (char.IsLetterOrDigit(Current) || Current == DASH) // Letters and minus sign(for custom html-elements)
             {
                 _openTagName.Append(Current);
                 TagNameState();
             }
-            else if (Current == '>') // Create open tag token
+            else if (Current == GT) // Create open tag token
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
 
                 _tokens.Add(new Token(TokenKind.OpenTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
                 NextChar();
                 _attrs.Clear();
-
-                //if (tagName == "script" || tagName == "style")
-                //    _stopParsing = true;
             }
 
-            else if (Current == ' ' || Current == '\n' || Current == '\r' || Current == '\t') // If tag has attributes
+            else if (char.IsWhiteSpace(Current)) // If tag has attributes
                 AfterTagNameState();
 
-            else if (Current == '/') // Looks like self-closing
+            else if (Current == F_SLASH) // Looks like self-closing
                 AfterSelfClosingTagState();
 
             else
@@ -389,25 +391,22 @@ namespace htmlParser
         {
             NextChar();
 
-            if (Current == ' ' || Current == '\n' || Current == '\t' || Current == '\r') // One or more spaces after tag name
+            if (char.IsWhiteSpace(Current)) // One or more spaces after tag name
                 AfterTagNameState();
-            else if (Current == '>') // Create open tag token
+            else if (Current == GT) // Create open tag token
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
 
                 _tokens.Add(new Token(TokenKind.OpenTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
                 NextChar();
                 _attrs.Clear();
-
-                //if (tagName == "script" || tagName == "style")
-                //    _stopParsing = true;
             }
             else if (char.IsLetter(Current))
             {
                 _attrName.Append(Current);
                 AttrNameState();
             }
-            else if (Current == '/')
+            else if (Current == F_SLASH)
                 AfterSelfClosingTagState();
             else
                 ParseError($"Error after tag parsing '{_markup.Substring(_position - 10, 20)}'!");
@@ -416,12 +415,12 @@ namespace htmlParser
         private void AttrNameState()
         {
             NextChar();
-            if (Current == '-' || char.IsLetter(Current) || Current == '_' || Current == ':') // Допскаем что имя атрибута может содержать тире
+            if (char.IsLetterOrDigit(Current) || Current == DASH || Current == UNDERSCORE || Current == COLON)
             {
                 _attrName.Append(Current);
                 AttrNameState();
             }
-            else if (Current == '>')
+            else if (Current == GT)
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
 
@@ -431,12 +430,12 @@ namespace htmlParser
                 _attrs.Clear();
                 NextChar();
             }
-            else if (Current == ' ' || Current == '\n' || Current == '\r' || Current == '\t' || Current == '/')
+            else if (char.IsWhiteSpace(Current) || Current == F_SLASH)
             {
                 PrevChar();
                 AfterAttrNameState();
             }
-            else if (Current == '=') // Имя аттрибута закончилось
+            else if (Current == EQUALS) // Имя аттрибута закончилось
                 BeforeAttrValueState();
             else
                 ParseError($"Error attr name parsing '{_markup.Substring(_position - 10, 20)}'!");
@@ -446,15 +445,15 @@ namespace htmlParser
         {
             NextChar();
 
-            if (Current == ' ' || Current == '\n' || Current == '\r' || Current == '\t')
+            if (char.IsWhiteSpace(Current))
                 AfterAttrNameState();
-            else if (Current == '/' || char.IsLetter(Current) || Current == '>')
+            else if (Current == F_SLASH || char.IsLetter(Current) || Current == GT)
             {
                 _attrs.Add(_attrName.ToString(), ["true"]);
                 _attrName.Clear();
                 _attrName.Append(Current);
 
-                if (Current == '/')
+                if (Current == F_SLASH)
                     AfterSelfClosingTagState();
                 else
                 {
@@ -462,7 +461,7 @@ namespace htmlParser
                     AttrNameState();
                 }
             }
-            else if (Current == '=') // Считаем что имя атрибута закончено
+            else if (Current == EQUALS) // Считаем что имя атрибута закончено
                 BeforeAttrValueState();
             else
                 ParseError($"Error after attr name parsing '{_markup.Substring(_position - 10, 20)}'! {_position}");
@@ -471,13 +470,13 @@ namespace htmlParser
         private void BeforeAttrValueState()
         {
             NextChar();
-            if (Current == ' ') // Считаем что перед значением атрибута может быть один или несколько пробелов, пропускаем их
+            if (char.IsWhiteSpace(Current)) // Считаем что перед значением атрибута может быть один или несколько пробелов, пропускаем их
                 BeforeAttrValueState();
-            else if (Current == '"') // Ждем значения атрибута в двойных кавычках
+            else if (Current == DOUBLE_QUOTE) // Ждем значения атрибута в двойных кавычках
                 DoubleQuotedAttrValueState();
-            else if (Current == '\'') // Ждем значения атрибута в одинарных кавычках
+            else if (Current == SINGLE_QUOTE) // Ждем значения атрибута в одинарных кавычках
                 SingleQuotedAttrValueState();
-            else if (char.IsLetterOrDigit(Current) || Current == '#' || Current == '/') // Ждем значения атрибута без кавычек
+            else if (char.IsLetterOrDigit(Current) || Current == SHARP || Current == F_SLASH) // Ждем значения атрибута без кавычек
             {
                 _attrValue.Append(Current);
                 UnquotedAttrValueState();
@@ -490,14 +489,14 @@ namespace htmlParser
         {
             NextChar();
 
-            if (Current == ' ' || Current == '\n' || Current == '\r' || Current == '\t')
+            if (char.IsWhiteSpace(Current))
             {
                 _attrs.Add(_attrName.ToString(), [_attrValue.ToString()]);
                 _attrName.Clear();
                 _attrValue.Clear();
                 AfterTagNameState();
             }
-            else if (Current == '>')
+            else if (Current == GT)
             {
                 _attrs.Add(_attrName.ToString(), [_attrValue.ToString()]);
                 _attrName.Clear();
@@ -515,11 +514,29 @@ namespace htmlParser
             }
         }
 
+        // ToDo: stack overflow issue
         private void SingleQuotedAttrValueState()
         {
             NextChar();
 
-            if (Current == '\'')
+            while (Current != SINGLE_QUOTE)
+            {
+                _attrValue.Append(Current);
+                NextChar();
+            }
+
+            var attrName = _attrName.ToString();
+            var attrValue = _attrValue.ToString();
+
+            if (attrName == "class")
+                _attrs.Add(attrName, attrValue.Split());
+            else
+                _attrs.Add(attrName, [attrValue]);
+            _attrName.Clear();
+            _attrValue.Clear();
+            AfterTagNameState();
+
+            /*if (Current == SINGLE_QUOTE)
             {
                 var attrName = _attrName.ToString();
                 var attrValue = _attrValue.ToString();
@@ -536,9 +553,10 @@ namespace htmlParser
             {
                 _attrValue.Append(Current);
                 SingleQuotedAttrValueState();
-            }
+            }*/
         }
 
+        // ToDo: stack overflow issue
         private void DoubleQuotedAttrValueState()
         {
             NextChar();
@@ -568,12 +586,16 @@ namespace htmlParser
         {
             NextChar();
 
-            if (Current == ' ')
+            if (char.IsWhiteSpace(Current))
                 AfterSelfClosingTagState();
             else if (Current == '>')
             {
                 var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.SelfClosingTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
+                _tokens.Add(new Token(TokenKind.SelfClosingTagToken, 
+                                      _openTagName.ToString(), 
+                                      DictCopy(_attrs), 
+                                      text, 
+                                      _start));
                 _attrs.Clear();
                 NextChar();
             }
