@@ -24,15 +24,13 @@ namespace htmlParser
 
     enum TokenKind
     {
+        DoctypeToken,
         OpenTagToken,
+        ClosingTagToken,
         SelfClosingTagToken,
+        ContentToken,
         CommentToken,
         BogusCommentToken,
-        DoctypeToken,
-        ClosingTagToken,
-        ContentToken,
-        SpecialCharToken,
-        CDATAToken
     }
 
     class Token(TokenKind kind, string? tagName, Dictionary<string, string[]>? attrs, string text, int position)
@@ -86,7 +84,6 @@ namespace htmlParser
         private readonly char DOUBLE_QUOTE = '"';
         private readonly char UNDERSCORE = '_';
         private readonly char F_SLASH = '/';
-        private readonly char B_SLASH = '\\';
         private readonly char DASH = '-';
         private readonly char COLON = ':';
         private readonly char SHARP = '#';
@@ -116,6 +113,58 @@ namespace htmlParser
             return _tokens;
         }
 
+        private void CommitToken(TokenKind kind)
+        {
+            var text = _markup.Substring(_start, _position - _start);
+
+            switch(kind)
+            {
+                case TokenKind.DoctypeToken:
+                    _tokens.Add(new Token(kind, "DOCTYPE", null, text, _start));
+                    break;
+                case TokenKind.OpenTagToken:
+                    _tokens.Add(new Token(kind, _openTagName.ToString(), DictCopy(_attrs), text, _start));
+                    _attrs.Clear();
+                    break;
+                case TokenKind.ClosingTagToken:
+                    _tokens.Add(new Token(kind, _closingTagName.ToString(), null, text, _start));
+                    break;
+                case TokenKind.SelfClosingTagToken:
+                    _tokens.Add(new Token(kind, _openTagName.ToString(), DictCopy(_attrs), text, _start));
+                    _attrs.Clear();
+                    break;
+                case TokenKind.ContentToken:
+                    _tokens.Add(new Token(kind, "text element", null, text.Trim(), _start));
+                    break;
+                case TokenKind.CommentToken:
+                    _tokens.Add(new Token(kind, "text comment", null, text, _start));
+                    break;
+                case TokenKind.BogusCommentToken:
+                    _tokens.Add(new Token(kind, "wrong comment", null, text, _start));
+                    break;
+            }
+        }
+
+        private void CommitAttribute()
+        {
+            var name = _attrName.ToString();
+
+            var raw_value = _attrValue.ToString();
+            var value = string.IsNullOrEmpty(raw_value) ? "true" : raw_value;
+
+            // TODO: duplicate attr names (sometimes happens)
+            if (!_attrs.ContainsKey(name))
+            {
+                if (name.Equals("class"))
+                    _attrs.Add(name, value.Split());
+                else
+                    _attrs.Add(name, [value]);
+            }
+
+            _attrName.Clear();
+            _attrValue.Clear();
+        }
+
         private char Current 
         {
             get 
@@ -127,17 +176,20 @@ namespace htmlParser
             }
         }
 
-        private void PrevChar() => _position--;
-
-        private void NextChar() => _position++;
-
-        private string NextChar(int offset)
+        private char Next
         {
-            if (_position + offset < _markup.Length)
-                return _markup.Substring(_position, offset);
-            else
-                return _markup.Substring(_position);
+            get
+            {
+                if (_position + 1 >= _markup.Length)
+                    return EOF;
+
+                return _markup[_position + 1];
+            }
         }
+
+        private void StepBack() => _position--;
+
+        private void StepForward() => _position++;
 
         private static Dictionary<string, string[]>? DictCopy(Dictionary<string, string[]> dict)
         {
@@ -157,7 +209,7 @@ namespace htmlParser
         {
             if (char.IsWhiteSpace(Current))
             {
-                NextChar();
+                StepForward();
                 if (Current != EOF)
                     DataState();
             }
@@ -175,37 +227,34 @@ namespace htmlParser
 
         private void ContentState()
         {
-            NextChar();
+            StepForward();
 
             while (true)
             {
                 if (Current == EOF)
                 {
-                    var text = _markup.Substring(_start, _position - _start);
-                    _tokens.Add(new Token(TokenKind.ContentToken, "text element", null, text.Trim(), _start));
+                    CommitToken(TokenKind.ContentToken);
                     break;
                 }
-                if (Current == LT)
+                else if (Current == LT && Next == F_SLASH)
                 {
-                    NextChar();
+                    StepBack();
+                    CommitToken(TokenKind.ContentToken);
 
-                    if (Current == F_SLASH)
-                    {
-                        var text = _markup.Substring(_start, _position - _start - 1);
-                        _tokens.Add(new Token(TokenKind.ContentToken, "text element", null, text.Trim(), _start));
-
-                        _start = _position - 1;
-                        BeforeClosingTagState();
-                        break;
-                    }
+                    StepForward();
+                    _start = _position;
+                    StepForward();
+                    BeforeClosingTagState();
+                    break;
                 }
-                NextChar();
+                else
+                    StepForward();
             }
         }
 
         private void BeforeTagState()
         {
-            NextChar();
+            StepForward();
 
             if (Current == EXCLAMATION_MARK) // <!--... , <!DOCTYPE..., <!...  
             {
@@ -229,10 +278,10 @@ namespace htmlParser
 
         private void ExclamationMarkTagState()
         {
-            NextChar();
+            StepForward();
             if (Current == DASH) // <!-...
             {
-                NextChar();
+                StepForward();
                 if (Current == DASH) // <!--...
                     BeforeCommentState();
                 else
@@ -246,23 +295,23 @@ namespace htmlParser
 
         private void BeforeClosingTagState()
         {
-            NextChar();
+            StepForward();
 
             if (char.IsWhiteSpace(Current))
                 BeforeClosingTagState();
-            else if (Current == GT)
-                ParseError($"Invalid closing tag '{_markup.Substring(_position - 10, 20)}'!");
-            else if (char.IsLetter(Current) || char.IsDigit(Current))
+            else if (char.IsLetterOrDigit(Current))
             {
                 _closingTagName.Clear();
                 _closingTagName.Append(Current);
                 ClosingTagNameState();
             }
+            else if (Current == GT)
+                ParseError($"Invalid closing tag '{_markup.Substring(_position - 10, 20)}'!");
         }
 
         private void ClosingTagNameState()
         {
-            NextChar();
+            StepForward();
 
             if (char.IsLetterOrDigit(Current))
             {
@@ -271,16 +320,14 @@ namespace htmlParser
             }
             else if (Current == GT)
             {
-                var text = _markup.Substring(_start, _position - _start + 1);
-                
-                _tokens.Add(new Token(TokenKind.ClosingTagToken, _closingTagName.ToString(), null, text, _start));
-                NextChar();
+                StepForward();
+                CommitToken(TokenKind.ClosingTagToken);
             }
         }        
 
         private void DoctypeState() 
         {
-            string part = NextChar(DOCTYPE.Length).ToUpper();
+            string part = _markup.Substring(_position, DOCTYPE.Length).ToUpper();
 
             if (part.Equals(DOCTYPE))
             {
@@ -297,14 +344,14 @@ namespace htmlParser
 
         private void DoctypeValueState()
         {
-            NextChar();
+            StepForward();
             if (char.IsWhiteSpace(Current))
                 DoctypeValueState();
             else if (Current == GT)
             {
-                var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.DoctypeToken, "DOCTYPE", null, text, _start));
-                NextChar();
+                StepForward();
+                CommitToken(TokenKind.DoctypeToken);
+                
             }
             else
                 DoctypeValueState();
@@ -312,19 +359,18 @@ namespace htmlParser
 
         private void BogusCommentState()
         {
-            NextChar();
+            StepForward();
 
             if (Current == GT)
             {
-                var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.BogusCommentToken, "wrong comment", null, text, _start));
-                NextChar();
+                StepForward();
+                CommitToken(TokenKind.BogusCommentToken);
             }
         }
 
         private void BeforeCommentState()
         {
-            NextChar();
+            StepForward();
             if (char.IsWhiteSpace(Current))
                 BeforeCommentState();
             else if (Current == DASH)
@@ -335,7 +381,7 @@ namespace htmlParser
 
         private void CommentState()
         {
-            NextChar();
+            StepForward();
 
             if (Current == DASH)
                 AfterCommentState();
@@ -345,15 +391,14 @@ namespace htmlParser
 
         private void AfterCommentState()
         {
-            NextChar();
+            StepForward();
 
             if (Current == DASH)
                 AfterCommentState();
             else if (Current == GT)
             {
-                var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.CommentToken, "text comment", null, text, _start));
-                NextChar();
+                StepForward();
+                CommitToken(TokenKind.CommentToken);
             }
             else
                 CommentState();
@@ -361,26 +406,23 @@ namespace htmlParser
 
         private void TagNameState()
         {
-            NextChar();
+            StepForward();
 
-            if (char.IsLetterOrDigit(Current) || Current == DASH) // Letters and minus sign(for custom html-elements)
+            if (char.IsLetterOrDigit(Current) || Current == DASH)
             {
                 _openTagName.Append(Current);
                 TagNameState();
             }
-            else if (Current == GT) // Create open tag token
+            else if (Current == GT)
             {
-                var text = _markup.Substring(_start, _position - _start + 1);
-
-                _tokens.Add(new Token(TokenKind.OpenTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
-                NextChar();
-                _attrs.Clear();
+                StepForward();
+                CommitToken(TokenKind.OpenTagToken);
             }
 
-            else if (char.IsWhiteSpace(Current)) // If tag has attributes
+            else if (char.IsWhiteSpace(Current))
                 AfterTagNameState();
 
-            else if (Current == F_SLASH) // Looks like self-closing
+            else if (Current == F_SLASH)
                 AfterSelfClosingTagState();
 
             else
@@ -389,17 +431,14 @@ namespace htmlParser
 
         private void AfterTagNameState()
         {
-            NextChar();
+            StepForward();
 
-            if (char.IsWhiteSpace(Current)) // One or more spaces after tag name
+            if (char.IsWhiteSpace(Current))
                 AfterTagNameState();
-            else if (Current == GT) // Create open tag token
+            else if (Current == GT)
             {
-                var text = _markup.Substring(_start, _position - _start + 1);
-
-                _tokens.Add(new Token(TokenKind.OpenTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
-                NextChar();
-                _attrs.Clear();
+                StepForward();
+                CommitToken(TokenKind.OpenTagToken);
             }
             else if (char.IsLetter(Current))
             {
@@ -414,7 +453,7 @@ namespace htmlParser
 
         private void AttrNameState()
         {
-            NextChar();
+            StepForward();
             if (char.IsLetterOrDigit(Current) || Current == DASH || Current == UNDERSCORE || Current == COLON)
             {
                 _attrName.Append(Current);
@@ -422,17 +461,13 @@ namespace htmlParser
             }
             else if (Current == GT)
             {
-                var text = _markup.Substring(_start, _position - _start + 1);
-
-                _attrs.Add(_attrName.ToString(), ["true"]);
-                _tokens.Add(new Token(TokenKind.OpenTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
-                _attrName.Clear();
-                _attrs.Clear();
-                NextChar();
+                StepForward();
+                CommitAttribute();
+                CommitToken(TokenKind.OpenTagToken);
             }
             else if (char.IsWhiteSpace(Current) || Current == F_SLASH)
             {
-                PrevChar();
+                StepBack();
                 AfterAttrNameState();
             }
             else if (Current == EQUALS) // Имя аттрибута закончилось
@@ -443,21 +478,19 @@ namespace htmlParser
 
         private void AfterAttrNameState()
         {
-            NextChar();
+            StepForward();
 
             if (char.IsWhiteSpace(Current))
                 AfterAttrNameState();
             else if (Current == F_SLASH || char.IsLetter(Current) || Current == GT)
             {
-                _attrs.Add(_attrName.ToString(), ["true"]);
-                _attrName.Clear();
-                _attrName.Append(Current);
+                CommitAttribute();
 
                 if (Current == F_SLASH)
                     AfterSelfClosingTagState();
                 else
                 {
-                    PrevChar();
+                    StepBack();
                     AttrNameState();
                 }
             }
@@ -469,7 +502,7 @@ namespace htmlParser
 
         private void BeforeAttrValueState()
         {
-            NextChar();
+            StepForward();
             if (char.IsWhiteSpace(Current)) // Считаем что перед значением атрибута может быть один или несколько пробелов, пропускаем их
                 BeforeAttrValueState();
             else if (Current == DOUBLE_QUOTE) // Ждем значения атрибута в двойных кавычках
@@ -487,25 +520,18 @@ namespace htmlParser
 
         private void UnquotedAttrValueState()
         {
-            NextChar();
+            StepForward();
 
             if (char.IsWhiteSpace(Current))
             {
-                _attrs.Add(_attrName.ToString(), [_attrValue.ToString()]);
-                _attrName.Clear();
-                _attrValue.Clear();
+                CommitAttribute();
                 AfterTagNameState();
             }
             else if (Current == GT)
             {
-                _attrs.Add(_attrName.ToString(), [_attrValue.ToString()]);
-                _attrName.Clear();
-                _attrValue.Clear();
-
-                var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.OpenTagToken, _openTagName.ToString(), DictCopy(_attrs), text, _start));
-                _attrs.Clear();
-                NextChar();
+                StepForward();
+                CommitAttribute();
+                CommitToken(TokenKind.OpenTagToken);
             }
             else
             {
@@ -514,90 +540,44 @@ namespace htmlParser
             }
         }
 
-        // ToDo: stack overflow issue
         private void SingleQuotedAttrValueState()
         {
-            NextChar();
+            StepForward();
 
             while (Current != SINGLE_QUOTE)
             {
                 _attrValue.Append(Current);
-                NextChar();
+                StepForward();
             }
 
-            var attrName = _attrName.ToString();
-            var attrValue = _attrValue.ToString();
-
-            if (attrName == "class")
-                _attrs.Add(attrName, attrValue.Split());
-            else
-                _attrs.Add(attrName, [attrValue]);
-            _attrName.Clear();
-            _attrValue.Clear();
-            AfterTagNameState();
-
-            /*if (Current == SINGLE_QUOTE)
-            {
-                var attrName = _attrName.ToString();
-                var attrValue = _attrValue.ToString();
-
-                if (attrName == "class")
-                    _attrs.Add(attrName, attrValue.Split());
-                else
-                    _attrs.Add(attrName, [attrValue]);
-                _attrName.Clear();
-                _attrValue.Clear();
-                AfterTagNameState();
-            }
-            else
-            {
-                _attrValue.Append(Current);
-                SingleQuotedAttrValueState();
-            }*/
+            CommitAttribute();
+            AfterTagNameState();            
         }
 
-        // ToDo: stack overflow issue
         private void DoubleQuotedAttrValueState()
         {
-            NextChar();
+            StepForward();
 
-            if (Current == '"')
-            {
-                var attrName = _attrName.ToString();
-                var attrValue = _attrValue.ToString();
-
-                if (attrName == "class")
-                    _attrs.Add(attrName, attrValue.Split());
-                else
-                    _attrs.Add(attrName, [attrValue]);
-
-                _attrName.Clear();
-                _attrValue.Clear();
-                AfterTagNameState();
-            }
-            else
+            while (Current != DOUBLE_QUOTE)
             {
                 _attrValue.Append(Current);
-                DoubleQuotedAttrValueState();
+                StepForward();
             }
+
+            CommitAttribute();
+            AfterTagNameState();
         }
 
         private void AfterSelfClosingTagState()
         {
-            NextChar();
+            StepForward();
 
             if (char.IsWhiteSpace(Current))
                 AfterSelfClosingTagState();
-            else if (Current == '>')
+            else if (Current == GT)
             {
-                var text = _markup.Substring(_start, _position - _start + 1);
-                _tokens.Add(new Token(TokenKind.SelfClosingTagToken, 
-                                      _openTagName.ToString(), 
-                                      DictCopy(_attrs), 
-                                      text, 
-                                      _start));
-                _attrs.Clear();
-                NextChar();
+                StepForward();
+                CommitToken(TokenKind.SelfClosingTagToken);
             }
             else
                 ParseError($"Error selfclosing tag parsing '{_markup.Substring(_position-10, 20)}'!");
