@@ -1,20 +1,34 @@
 ﻿using System.Text;
 
-namespace htmlparser.Lexer
+namespace YellowOak.LexicAnalisys
 {
-    class Token(TokenKind kind, string? tagName, Dictionary<string, string[]>? attrs, string text, int position)
+    interface ITokenable
     {
-        public TokenKind Kind { get; } = kind;
-        public string? TagName { get; } = tagName;
-        public Dictionary<string, string[]>? Attributes { get; } = attrs;
-        public string Text { get; } = text;
-        public int Position { get; } = position;
+        
+    }
+
+    class Token: ITokenable
+    {
+        public SyntaxKind Kind { get; }
+        public string? TagName { get; }
+        public Dictionary<string, string[]>? Attributes { get; }
+        public string Text { get; }
+        public int Position { get; }
+
+        public Token(SyntaxKind kind, string? tagName, Dictionary<string, string[]>? attributes, string text, int position)
+        {
+            Kind = kind;
+            TagName = tagName;
+            Attributes = attributes;
+            Text = text;
+            Position = position;
+        }
 
         public override string ToString()
         {
             var builder = new StringBuilder();
 
-            builder.Append($"{Kind}: {TagName}, position='{Position}' text='{Text}'\n");
+            builder.Append($"{Kind}: '{TagName}', '{Position}', '{Text}'\n");
 
             if (Attributes is not null)
             {

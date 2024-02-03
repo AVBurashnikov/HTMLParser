@@ -1,6 +1,6 @@
-﻿namespace htmlparser.Lexer
+﻿namespace YellowOak.LexicAnalisys
 {
-    enum TokenKind
+    enum SyntaxKind
     {
         Doctype,
         OpenTag,

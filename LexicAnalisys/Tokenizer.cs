@@ -1,7 +1,8 @@
 ﻿using System.Text;
-namespace htmlparser.Lexer
+
+namespace YellowOak.LexicAnalisys
 {
-    internal class Lexer
+    internal class Tokenizer
     {
         private readonly string DOCTYPE = "DOCTYPE";
         private readonly char EOF = '\0';
@@ -39,6 +40,7 @@ namespace htmlparser.Lexer
             while (Current != EOF)
             {
                 DataState();
+                StepForward();
             }
 
             return _tokens;
@@ -46,34 +48,32 @@ namespace htmlparser.Lexer
 
         public List<string> Diagnostics { get { return _diagnostics; } }
 
-        private void CommitToken(TokenKind kind)
+        private void CommitToken(SyntaxKind kind)
         {
-            var text = _markup.Substring(_start, _position - _start);
+            var text = _markup.Substring(_start, _position - _start + 1);
 
             switch (kind)
             {
-                case TokenKind.Doctype:
+                case SyntaxKind.Doctype:
                     _tokens.Add(new Token(kind, "DOCTYPE", null, text, _start));
                     break;
-                case TokenKind.OpenTag:
-                    _tokens.Add(new Token(kind, _openTagName.ToString(), DictCopy(_attrs), text, _start));
-                    _attrs.Clear();
+                case SyntaxKind.OpenTag:
+                    _tokens.Add(new Token(kind, _openTagName.ToString(), Attrs(), text, _start));
                     break;
-                case TokenKind.ClosingTag:
+                case SyntaxKind.ClosingTag:
                     _tokens.Add(new Token(kind, _closingTagName.ToString(), null, text, _start));
                     break;
-                case TokenKind.SelfClosingTag:
-                    _tokens.Add(new Token(kind, _openTagName.ToString(), DictCopy(_attrs), text, _start));
-                    _attrs.Clear();
+                case SyntaxKind.SelfClosingTag:
+                    _tokens.Add(new Token(kind, _openTagName.ToString(), Attrs(), text, _start));
                     break;
-                case TokenKind.Content:
-                    _tokens.Add(new Token(kind, "text element", null, text.Trim(), _start));
+                case SyntaxKind.Content:
+                    _tokens.Add(new Token(kind, "text", null, text.Trim(), _start));
                     break;
-                case TokenKind.Comment:
-                    _tokens.Add(new Token(kind, "text comment", null, text, _start));
+                case SyntaxKind.Comment:
+                    _tokens.Add(new Token(kind, "comment", null, text, _start));
                     break;
-                case TokenKind.BogusComment:
-                    _tokens.Add(new Token(kind, "wrong comment", null, text, _start));
+                case SyntaxKind.BogusComment:
+                    _tokens.Add(new Token(kind, "comment", null, text, _start));
                     break;
             }
         }
@@ -89,7 +89,7 @@ namespace htmlparser.Lexer
             if (!_attrs.ContainsKey(name))
             {
                 if (name.Equals("class"))
-                    _attrs.Add(name, value.Split());
+                    _attrs.Add(name, value.Trim().Split());
                 else
                     _attrs.Add(name, [value]);
             }
@@ -127,33 +127,35 @@ namespace htmlparser.Lexer
         private string PlaceOfErrorCut()
         {
             if (_position + 10 >= _markup.Length)
-                return _markup.Substring(_position - 10);
+                return _markup[(_position - 10)..];
             else if (_position - 10 < 0)
-                return _markup.Substring(0, 20);
+                return _markup[..20];
             return _markup.Substring(_position - 10, 20);
         }
 
-        private static Dictionary<string, string[]>? DictCopy(Dictionary<string, string[]> dict)
+        private Dictionary<string, string[]>? Attrs()
         {
-            var newDict = new Dictionary<string, string[]>();
-
-            if (dict.Count == 0)
+            if (_attrs.Count == 0)
                 return null;
 
-            foreach (KeyValuePair<string, string[]> pair in dict)
-            {
-                newDict.Add(pair.Key, pair.Value);
-            }
-            return newDict;
+            var attrs = new Dictionary<string, string[]>();
+
+            foreach (KeyValuePair<string, string[]> pair in _attrs)
+                attrs.Add(pair.Key, pair.Value);
+
+            _attrs.Clear();
+            
+            return attrs;
         }
 
         private void DataState()
         {
+            if (Current == EOF) 
+                return;
             if (char.IsWhiteSpace(Current))
             {
                 StepForward();
-                if (Current != EOF)
-                    DataState();
+                DataState();
             }
             else if (Current == LT)
             {
@@ -175,13 +177,13 @@ namespace htmlparser.Lexer
             {
                 if (Current == EOF)
                 {
-                    CommitToken(TokenKind.Content);
+                    CommitToken(SyntaxKind.Content);
                     break;
                 }
                 else if (Current == LT && Next == F_SLASH)
                 {
                     StepBack();
-                    CommitToken(TokenKind.Content);
+                    CommitToken(SyntaxKind.Content);
 
                     StepForward();
                     _start = _position;
@@ -255,10 +257,7 @@ namespace htmlparser.Lexer
                 ClosingTagNameState();
             }
             else if (Current == GT)
-            {
-                StepForward();
-                CommitToken(TokenKind.ClosingTag);
-            }
+                CommitToken(SyntaxKind.ClosingTag);
         }
 
         private void DoctypeState()
@@ -281,14 +280,11 @@ namespace htmlparser.Lexer
         private void DoctypeValueState()
         {
             StepForward();
+
             if (char.IsWhiteSpace(Current))
                 DoctypeValueState();
             else if (Current == GT)
-            {
-                StepForward();
-                CommitToken(TokenKind.Doctype);
-
-            }
+                CommitToken(SyntaxKind.Doctype);
             else
                 DoctypeValueState();
         }
@@ -298,10 +294,7 @@ namespace htmlparser.Lexer
             StepForward();
 
             if (Current == GT)
-            {
-                StepForward();
-                CommitToken(TokenKind.BogusComment);
-            }
+                CommitToken(SyntaxKind.BogusComment);
         }
 
         private void BeforeCommentState()
@@ -332,10 +325,7 @@ namespace htmlparser.Lexer
             if (Current == DASH)
                 AfterCommentState();
             else if (Current == GT)
-            {
-                StepForward();
-                CommitToken(TokenKind.Comment);
-            }
+                CommitToken(SyntaxKind.Comment);
             else
                 CommentState();
         }
@@ -350,17 +340,11 @@ namespace htmlparser.Lexer
                 TagNameState();
             }
             else if (Current == GT)
-            {
-                StepForward();
-                CommitToken(TokenKind.OpenTag);
-            }
-
+                CommitToken(SyntaxKind.OpenTag);
             else if (char.IsWhiteSpace(Current))
                 AfterTagNameState();
-
             else if (Current == F_SLASH)
                 AfterSelfClosingTagState();
-
             else
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
         }
@@ -372,10 +356,7 @@ namespace htmlparser.Lexer
             if (char.IsWhiteSpace(Current))
                 AfterTagNameState();
             else if (Current == GT)
-            {
-                StepForward();
-                CommitToken(TokenKind.OpenTag);
-            }
+                CommitToken(SyntaxKind.OpenTag);
             else if (char.IsLetter(Current))
             {
                 _attrName.Append(Current);
@@ -397,9 +378,8 @@ namespace htmlparser.Lexer
             }
             else if (Current == GT)
             {
-                StepForward();
                 CommitAttribute();
-                CommitToken(TokenKind.OpenTag);
+                CommitToken(SyntaxKind.OpenTag);
             }
             else if (char.IsWhiteSpace(Current) || Current == F_SLASH)
             {
@@ -465,9 +445,8 @@ namespace htmlparser.Lexer
             }
             else if (Current == GT)
             {
-                StepForward();
                 CommitAttribute();
-                CommitToken(TokenKind.OpenTag);
+                CommitToken(SyntaxKind.OpenTag);
             }
             else
             {
@@ -510,10 +489,7 @@ namespace htmlparser.Lexer
             if (char.IsWhiteSpace(Current))
                 AfterSelfClosingTagState();
             else if (Current == GT)
-            {
-                StepForward();
-                CommitToken(TokenKind.SelfClosingTag);
-            }
+                CommitToken(SyntaxKind.SelfClosingTag);
             else
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
         }
