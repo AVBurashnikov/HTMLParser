@@ -1,4 +1,4 @@
-﻿using YellowOak.LexicAnalisys;
+﻿using YellowOak.HTMLLexicAnalisys;
 
 namespace YellowOak
 {
@@ -14,8 +14,24 @@ namespace YellowOak
             var tokenizer = new Tokenizer();
             var tokens = tokenizer.Parse(data);
 
+            /*int i = 0;
+            int counter = 1;
 
-            foreach(var token in tokens)
+            while (i < tokens.Count)
+            {
+                if (tokens[i].TagName == "a" && 
+                    tokens[i].Kind.Equals(SyntaxKind.OpenTag) &&
+                    tokens[i].Attributes.ContainsKey("href"))
+                    {
+                        Console.WriteLine("{0}: {1}", counter, tokens[i].Attributes["href"][0]);
+                        Console.WriteLine(tokens[i + 1].Text);
+                        Console.WriteLine("----------");
+                        counter++;
+                    }
+                i++;
+            }*/
+
+            foreach (var token in tokens)
                 Console.WriteLine(token);
 
             Console.WriteLine("-------------------------");

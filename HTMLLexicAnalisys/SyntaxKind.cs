@@ -1,4 +1,4 @@
-﻿namespace YellowOak.LexicAnalisys
+﻿namespace YellowOak.HTMLLexicAnalisys
 {
     enum SyntaxKind
     {

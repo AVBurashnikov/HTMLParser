@@ -1,27 +1,33 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections;
 
-namespace YellowOak.LexicAnalisys
+namespace YellowOak.HTMLLexicAnalisys
 {
     interface IAttributeList
     {
+        public int Count { get; }
         public List<Attribute> GetAttributes { get; }
-        public List<Attribute> GetAttribute(string name);
         public void Add(Attribute attribute);
+        public void Clear();
+        public List<Attribute> GetAttribute(string name);
 
     }
-    internal class AttributeList: IAttributeList
+
+    internal class AttributeList: IAttributeList, IEnumerable<Attribute>
     {
         private readonly List<Attribute> _attributes = [];
 
         public List<Attribute> GetAttributes => _attributes;
 
+        public int Count => _attributes.Count;
+
         public void Add(Attribute attribute)
         {
-            _attributes.Add(attribute);
+                _attributes.Add(attribute);
+        }
+
+        public void Clear()
+        {
+            _attributes.Clear();
         }
 
         public List<Attribute> GetAttribute(string name)
@@ -36,6 +42,16 @@ namespace YellowOak.LexicAnalisys
                 }
             }
             return attributes;
+        }
+
+        public IEnumerator<Attribute> GetEnumerator()
+        {
+            return _attributes.GetEnumerator();
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return (IEnumerator) GetEnumerator();
         }
     }
 }

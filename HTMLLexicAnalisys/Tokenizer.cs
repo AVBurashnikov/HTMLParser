@@ -1,6 +1,6 @@
 ﻿using System.Text;
 
-namespace YellowOak.LexicAnalisys
+namespace YellowOak.HTMLLexicAnalisys
 {
     internal class Tokenizer
     {
@@ -21,14 +21,12 @@ namespace YellowOak.LexicAnalisys
         private string _markup = string.Empty;
         private int _start = 0;
         private int _position = 0;
-        private List<string> _diagnostics = [];
+        private readonly List<string> _diagnostics = [];
 
-        private List<Token> _tokens = [];
-        private Dictionary<string, string[]> _attrs = [];
-        private StringBuilder _openTagName = new();
-        private StringBuilder _closingTagName = new();
-        private StringBuilder _attrName = new();
-        private StringBuilder _attrValue = new();
+        private readonly List<Token> _tokens = [];
+        private AttributeList attributes = [];
+        private readonly StringBuilder _attributeName = new();
+        private readonly StringBuilder _attributeValue = new();
 
         public List<Token> Parse(string markup)
         {
@@ -46,7 +44,7 @@ namespace YellowOak.LexicAnalisys
             return _tokens;
         }
 
-        public List<string> Diagnostics { get { return _diagnostics; } }
+        public List<string> Diagnostics { get => _diagnostics; }
 
         private void CommitToken(SyntaxKind kind)
         {
@@ -58,13 +56,15 @@ namespace YellowOak.LexicAnalisys
                     _tokens.Add(new Token(kind, "DOCTYPE", null, text, _start));
                     break;
                 case SyntaxKind.OpenTag:
-                    _tokens.Add(new Token(kind, _openTagName.ToString(), Attrs(), text, _start));
+                    _tokens.Add(new Token(kind, CropTagName(text), attributes, text, _start));
+                    attributes = [];
                     break;
                 case SyntaxKind.ClosingTag:
-                    _tokens.Add(new Token(kind, _closingTagName.ToString(), null, text, _start));
+                    _tokens.Add(new Token(kind, CropTagName(text), null, text, _start));
                     break;
                 case SyntaxKind.SelfClosingTag:
-                    _tokens.Add(new Token(kind, _openTagName.ToString(), Attrs(), text, _start));
+                    _tokens.Add(new Token(kind, CropTagName(text), attributes, text, _start));
+                    attributes = [];
                     break;
                 case SyntaxKind.Content:
                     _tokens.Add(new Token(kind, "text", null, text.Trim(), _start));
@@ -78,24 +78,23 @@ namespace YellowOak.LexicAnalisys
             }
         }
 
+        private static string CropTagName(string text) => text.Trim('<').Trim('>').Trim('/').Split()[0];
+
         private void CommitAttribute()
         {
-            var name = _attrName.ToString();
+            var attributeName = _attributeName.ToString();
+            var attributeValue = _attributeValue.ToString();
 
-            var raw_value = _attrValue.ToString();
-            var value = string.IsNullOrEmpty(raw_value) ? "true" : raw_value;
-
-            // TODO: duplicate attr names (sometimes )
-            if (!_attrs.ContainsKey(name))
+            _attributeName.Clear();
+            _attributeValue.Clear();
+            
+            if (attributeName.Equals("class"))
             {
-                if (name.Equals("class"))
-                    _attrs.Add(name, value.Trim().Split());
-                else
-                    _attrs.Add(name, [value]);
+                foreach (var value in attributeValue.Trim().Split())
+                    attributes.Add(new Attribute(attributeName, value));
             }
-
-            _attrName.Clear();
-            _attrValue.Clear();
+            else
+                attributes.Add(new Attribute(attributeName, attributeValue));            
         }
 
         private char Current
@@ -133,21 +132,6 @@ namespace YellowOak.LexicAnalisys
             return _markup.Substring(_position - 10, 20);
         }
 
-        private Dictionary<string, string[]>? Attrs()
-        {
-            if (_attrs.Count == 0)
-                return null;
-
-            var attrs = new Dictionary<string, string[]>();
-
-            foreach (KeyValuePair<string, string[]> pair in _attrs)
-                attrs.Add(pair.Key, pair.Value);
-
-            _attrs.Clear();
-            
-            return attrs;
-        }
-
         private void DataState()
         {
             if (Current == EOF) 
@@ -180,15 +164,20 @@ namespace YellowOak.LexicAnalisys
                     CommitToken(SyntaxKind.Content);
                     break;
                 }
-                else if (Current == LT && Next == F_SLASH)
+                else if (Current == LT && (Next == F_SLASH || char.IsLetter(Next)))
                 {
                     StepBack();
                     CommitToken(SyntaxKind.Content);
 
                     StepForward();
                     _start = _position;
-                    StepForward();
-                    BeforeClosingTagState();
+                    if (char.IsLetter(Next))
+                        BeforeTagState();
+                    else
+                    {
+                        StepForward();
+                        BeforeClosingTagState();
+                    }
                     break;
                 }
                 else
@@ -205,11 +194,7 @@ namespace YellowOak.LexicAnalisys
             else if (Current == F_SLASH)
                 BeforeClosingTagState();
             else if (char.IsLetter(Current))
-            {
-                _openTagName.Clear();
-                _openTagName.Append(Current);
                 TagNameState();
-            }
             else
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
         }
@@ -238,11 +223,7 @@ namespace YellowOak.LexicAnalisys
             if (char.IsWhiteSpace(Current))
                 BeforeClosingTagState();
             else if (char.IsLetterOrDigit(Current))
-            {
-                _closingTagName.Clear();
-                _closingTagName.Append(Current);
                 ClosingTagNameState();
-            }
             else if (Current == GT)
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
         }
@@ -252,10 +233,7 @@ namespace YellowOak.LexicAnalisys
             StepForward();
 
             if (char.IsLetterOrDigit(Current))
-            {
-                _closingTagName.Append(Current);
                 ClosingTagNameState();
-            }
             else if (Current == GT)
                 CommitToken(SyntaxKind.ClosingTag);
         }
@@ -335,10 +313,7 @@ namespace YellowOak.LexicAnalisys
             StepForward();
 
             if (char.IsLetterOrDigit(Current) || Current == DASH)
-            {
-                _openTagName.Append(Current);
                 TagNameState();
-            }
             else if (Current == GT)
                 CommitToken(SyntaxKind.OpenTag);
             else if (char.IsWhiteSpace(Current))
@@ -359,7 +334,7 @@ namespace YellowOak.LexicAnalisys
                 CommitToken(SyntaxKind.OpenTag);
             else if (char.IsLetter(Current))
             {
-                _attrName.Append(Current);
+                _attributeName.Append(Current);
                 AttrNameState();
             }
             else if (Current == F_SLASH)
@@ -373,7 +348,7 @@ namespace YellowOak.LexicAnalisys
             StepForward();
             if (char.IsLetterOrDigit(Current) || Current == DASH || Current == UNDERSCORE || Current == COLON)
             {
-                _attrName.Append(Current);
+                _attributeName.Append(Current);
                 AttrNameState();
             }
             else if (Current == GT)
@@ -427,7 +402,7 @@ namespace YellowOak.LexicAnalisys
                 SingleQuotedAttrValueState();
             else if (char.IsLetterOrDigit(Current) || Current == SHARP || Current == F_SLASH) // Ждем значения атрибута без кавычек
             {
-                _attrValue.Append(Current);
+                _attributeValue.Append(Current);
                 UnquotedAttrValueState();
             }
             else
@@ -450,7 +425,7 @@ namespace YellowOak.LexicAnalisys
             }
             else
             {
-                _attrValue.Append(Current);
+                _attributeValue.Append(Current);
                 UnquotedAttrValueState();
             }
         }
@@ -461,7 +436,7 @@ namespace YellowOak.LexicAnalisys
 
             while (Current != SINGLE_QUOTE)
             {
-                _attrValue.Append(Current);
+                _attributeValue.Append(Current);
                 StepForward();
             }
 
@@ -475,7 +450,7 @@ namespace YellowOak.LexicAnalisys
 
             while (Current != DOUBLE_QUOTE)
             {
-                _attrValue.Append(Current);
+                _attributeValue.Append(Current);
                 StepForward();
             }
             CommitAttribute();
