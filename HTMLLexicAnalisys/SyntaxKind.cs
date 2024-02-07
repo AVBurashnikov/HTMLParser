@@ -5,7 +5,7 @@
         Doctype,
         OpenTag,
         ClosingTag,
-        SelfClosingTag,
+        AutoClosingTag,
         Content,
         Comment,
         BogusComment,

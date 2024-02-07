@@ -49,37 +49,40 @@ namespace YellowOak.HTMLLexicAnalisys
         private void CommitToken(SyntaxKind kind)
         {
             var text = _markup.Substring(_start, _position - _start + 1);
+            //text = Decode(text);
 
             switch (kind)
             {
                 case SyntaxKind.Doctype:
-                    _tokens.Add(new Token(kind, "DOCTYPE", null, text, _start));
+                    _tokens.Add(new Token(kind, "DOCTYPE", null, text));
                     break;
                 case SyntaxKind.OpenTag:
-                    _tokens.Add(new Token(kind, CropTagName(text), attributes, text, _start));
+                    _tokens.Add(new Token(kind, CropTagName(text), attributes, text));
                     attributes = [];
                     break;
                 case SyntaxKind.ClosingTag:
-                    _tokens.Add(new Token(kind, CropTagName(text), null, text, _start));
+                    _tokens.Add(new Token(kind, CropTagName(text), null, text));
                     break;
-                case SyntaxKind.SelfClosingTag:
-                    _tokens.Add(new Token(kind, CropTagName(text), attributes, text, _start));
+                case SyntaxKind.AutoClosingTag:
+                    _tokens.Add(new Token(kind, CropTagName(text), attributes, text));
                     attributes = [];
                     break;
                 case SyntaxKind.Content:
-                    _tokens.Add(new Token(kind, "text", null, text.Trim(), _start));
+                    _tokens.Add(new Token(kind, "text", null, text.Trim()));
                     break;
                 case SyntaxKind.Comment:
-                    _tokens.Add(new Token(kind, "comment", null, text, _start));
+                    _tokens.Add(new Token(kind, "comment", null, text));
                     break;
                 case SyntaxKind.BogusComment:
-                    _tokens.Add(new Token(kind, "comment", null, text, _start));
+                    _tokens.Add(new Token(kind, "comment", null, text));
                     break;
             }
         }
 
         private static string CropTagName(string text) => text.Trim('<').Trim('>').Trim('/').Split()[0];
 
+        
+        
         private void CommitAttribute()
         {
             var attributeName = _attributeName.ToString();
@@ -171,6 +174,7 @@ namespace YellowOak.HTMLLexicAnalisys
 
                     StepForward();
                     _start = _position;
+
                     if (char.IsLetter(Next))
                         BeforeTagState();
                     else
@@ -464,7 +468,7 @@ namespace YellowOak.HTMLLexicAnalisys
             if (char.IsWhiteSpace(Current))
                 AfterSelfClosingTagState();
             else if (Current == GT)
-                CommitToken(SyntaxKind.SelfClosingTag);
+                CommitToken(SyntaxKind.AutoClosingTag);
             else
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
         }
