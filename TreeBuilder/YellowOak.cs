@@ -1,18 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using YellowOak.Utils;
 
 namespace YellowOak.TreeBuilder
 {
     internal class YellowOak
     {
+        Tree Tree { get; set; }
     
         public YellowOak(FromUrl url)
         {
-
+            Markup markup = new Markup();
         }
 
         public YellowOak(FromFile filename)

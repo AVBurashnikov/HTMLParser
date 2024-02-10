@@ -4,6 +4,9 @@ namespace YellowOak.HTMLLexicAnalisys
 {
     internal class Tokenizer
     {
+        private readonly string[] _unpairedTags = [ "meta",
+            "img", "link", "br", "hr", "input", "area", "param", "col", "base" ];
+
         private readonly string DOCTYPE = "DOCTYPE";
         private readonly char EOF = '\0';
         private readonly char GT = '>';
@@ -24,7 +27,7 @@ namespace YellowOak.HTMLLexicAnalisys
         private readonly List<string> _diagnostics = [];
 
         private readonly List<Token> _tokens = [];
-        private AttributeList attributes = [];
+        private AttributeList _attributes = [];
         private readonly StringBuilder _attributeName = new();
         private readonly StringBuilder _attributeValue = new();
 
@@ -48,33 +51,52 @@ namespace YellowOak.HTMLLexicAnalisys
 
         private void CommitToken(SyntaxKind kind)
         {
+            var tag = "";
             var text = _markup.Substring(_start, _position - _start + 1);
-            //text = Decode(text);
+            SyntaxKind tKind = kind;
+            SyntaxKind[] syntaxTagKinds = [ SyntaxKind.OpenTag, 
+                                            SyntaxKind.ClosingTag, 
+                                            SyntaxKind.AutoClosingTag ];
 
-            switch (kind)
+            if (syntaxTagKinds.Contains(kind))
+            {
+                tag = CropTagName(text);
+            }
+
+            if (_unpairedTags.Contains(tag) &&
+                SyntaxKind.OpenTag == kind)
+            {
+                tKind = SyntaxKind.AutoClosingTag;
+            }
+            else
+            {
+                tKind = kind;
+            }
+
+            switch (tKind)
             {
                 case SyntaxKind.Doctype:
-                    _tokens.Add(new Token(kind, "DOCTYPE", null, text));
+                    _tokens.Add(new Token(tKind, null, null, text));
                     break;
                 case SyntaxKind.OpenTag:
-                    _tokens.Add(new Token(kind, CropTagName(text), attributes, text));
-                    attributes = [];
+                    _tokens.Add(new Token(tKind, tag, _attributes, text));
+                    _attributes = [];
                     break;
                 case SyntaxKind.ClosingTag:
-                    _tokens.Add(new Token(kind, CropTagName(text), null, text));
+                    _tokens.Add(new Token(tKind, tag, null, text));
                     break;
                 case SyntaxKind.AutoClosingTag:
-                    _tokens.Add(new Token(kind, CropTagName(text), attributes, text));
-                    attributes = [];
+                    _tokens.Add(new Token(tKind, tag, _attributes, text));
+                    _attributes = [];
                     break;
                 case SyntaxKind.Content:
-                    _tokens.Add(new Token(kind, "text", null, text.Trim()));
+                    _tokens.Add(new Token(tKind, null, null, text.Trim()));
                     break;
                 case SyntaxKind.Comment:
-                    _tokens.Add(new Token(kind, "comment", null, text));
+                    _tokens.Add(new Token(tKind, null, null, text));
                     break;
                 case SyntaxKind.BogusComment:
-                    _tokens.Add(new Token(kind, "comment", null, text));
+                    _tokens.Add(new Token(tKind, null, null, text));
                     break;
             }
         }
@@ -94,10 +116,10 @@ namespace YellowOak.HTMLLexicAnalisys
             if (attributeName.Equals("class"))
             {
                 foreach (var value in attributeValue.Trim().Split())
-                    attributes.Add(new Attribute(attributeName, value));
+                    _attributes.Add(new Attribute(attributeName, value));
             }
             else
-                attributes.Add(new Attribute(attributeName, attributeValue));            
+                _attributes.Add(new Attribute(attributeName, attributeValue));            
         }
 
         private char Current
@@ -350,7 +372,10 @@ namespace YellowOak.HTMLLexicAnalisys
         private void AttrNameState()
         {
             StepForward();
-            if (char.IsLetterOrDigit(Current) || Current == DASH || Current == UNDERSCORE || Current == COLON)
+            if (char.IsLetterOrDigit(Current) || 
+                Current == DASH || 
+                Current == UNDERSCORE || 
+                Current == COLON)
             {
                 _attributeName.Append(Current);
                 AttrNameState();
@@ -365,7 +390,7 @@ namespace YellowOak.HTMLLexicAnalisys
                 StepBack();
                 AfterAttrNameState();
             }
-            else if (Current == EQUALS) // Имя аттрибута закончилось
+            else if (Current == EQUALS)
                 BeforeAttrValueState();
             else
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
@@ -377,7 +402,9 @@ namespace YellowOak.HTMLLexicAnalisys
 
             if (char.IsWhiteSpace(Current))
                 AfterAttrNameState();
-            else if (Current == F_SLASH || char.IsLetter(Current) || Current == GT)
+            else if (Current == F_SLASH || 
+                     char.IsLetter(Current) || 
+                     Current == GT)
             {
                 CommitAttribute();
 
@@ -389,7 +416,7 @@ namespace YellowOak.HTMLLexicAnalisys
                     AttrNameState();
                 }
             }
-            else if (Current == EQUALS) // Считаем что имя атрибута закончено
+            else if (Current == EQUALS)
                 BeforeAttrValueState();
             else
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
@@ -398,13 +425,15 @@ namespace YellowOak.HTMLLexicAnalisys
         private void BeforeAttrValueState()
         {
             StepForward();
-            if (char.IsWhiteSpace(Current)) // Считаем что перед значением атрибута может быть один или несколько пробелов, пропускаем их
+            if (char.IsWhiteSpace(Current))
                 BeforeAttrValueState();
-            else if (Current == DOUBLE_QUOTE) // Ждем значения атрибута в двойных кавычках
+            else if (Current == DOUBLE_QUOTE)
                 DoubleQuotedAttrValueState();
-            else if (Current == SINGLE_QUOTE) // Ждем значения атрибута в одинарных кавычках
+            else if (Current == SINGLE_QUOTE)
                 SingleQuotedAttrValueState();
-            else if (char.IsLetterOrDigit(Current) || Current == SHARP || Current == F_SLASH) // Ждем значения атрибута без кавычек
+            else if (char.IsLetterOrDigit(Current) || 
+                     Current == SHARP || 
+                     Current == F_SLASH)
             {
                 _attributeValue.Append(Current);
                 UnquotedAttrValueState();

@@ -2,7 +2,7 @@
 
 namespace YellowOak
 {
-    class Program
+    internal sealed class Program
     {
         public static void Main()
         {
@@ -10,7 +10,7 @@ namespace YellowOak
 
             var sr = new StreamReader("file.html");
             var data = sr.ReadToEnd();
-            int length = data.Length;
+            var length = data.Length;
             
             var tokenizer = new Tokenizer();
             var tokens = tokenizer.Parse(data);
