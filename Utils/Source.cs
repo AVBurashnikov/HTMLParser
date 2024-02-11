@@ -11,8 +11,13 @@ namespace YellowOak.TreeBuilder
 
     }
 
-    internal class FromFile
+    internal class FromFile(string path)
     {
-
+        private string _path = path;
+        public string Path 
+        {
+            get => _path;
+            set => _path = value;
+        }
     }
 }
