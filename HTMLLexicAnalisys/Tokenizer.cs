@@ -2,11 +2,30 @@
 
 namespace YellowOak.HTMLLexicAnalisys
 {
+
     internal class Tokenizer
     {
-        private readonly string[] _unpairedTags = [ "meta",
-            "img", "link", "br", "hr", "input", "area", "param", "col", "base" ];
+        // Parsed markup
+        private string _markup = string.Empty;
 
+        // List of self-closing tags. Due to the peculiarities
+        // of markup parsing, auto-closing tags are initially
+        // classified as opening tags; this introduces an error
+        // at the stage of constructing a node tree. Therefore,
+        // later in the code, when creating an opening tag, a
+        // check is made to see if this tag is in the list of
+        // auto-closing tags.
+        // For example: <input type="text"> will be recognized
+        // as SyntaxKind.OpenTag, and the tree builder will assign
+        // it as the parent element for subsequent opening tags,
+        // and due to the fact that the input tag does not have a
+        // closing tag, this will result in an error when building
+        // the node tree .
+        private readonly string[] _unpairedTags = [ "meta",
+            "img", "link", "br", "hr", "input", 
+            "area", "param", "col", "base" ];
+
+        // Some auxiliary variables to make the code below easier to read.
         private readonly string DOCTYPE = "DOCTYPE";
         private readonly char EOF = '\0';
         private readonly char GT = '>';
@@ -21,16 +40,49 @@ namespace YellowOak.HTMLLexicAnalisys
         private readonly char COLON = ':';
         private readonly char SHARP = '#';
 
-        private string _markup = string.Empty;
+        // Pointer to the start of the lexical token. Set during
+        // markup analysis when certain character sequences are detected.
         private int _start = 0;
+
+        // Current pointer position number.
         private int _position = 0;
+
+        // An array for storing diagnostic information obtained
+        // during lexical parsing of markup.
+        //
+        // TODO: The part of the application responsible
+        // for processing warnings and errors needs
+        // to be improved.
         private readonly List<string> _diagnostics = [];
 
+        // An array for storing lexemes obtained during
+        // the parsing process.
         private readonly List<Token> _tokens = [];
+
+        // Variable for storing a list of attributes
+        // of a given tag
         private AttributeList _attributes = [];
+
+        // Auxiliary variables for obtaining the
+        // attribute name and value during markup
+        // lexical parsing. They are filled in during
+        // the process of parsing the markup into
+        // tokens and immediately after defining
+        // the tag, they are saved to the list of
+        // attributes, cleared and ready to be filled
+        // with new values.
         private readonly StringBuilder _attributeName = new();
         private readonly StringBuilder _attributeValue = new();
 
+        /// <summary>
+        ///     Start lexical analysis until the 
+        ///     end-of-file character is received.
+        /// </summary>
+        /// <param name="markup"> Parsed markup. </param>
+        /// <returns> 
+        ///     An array for storing lexemes 
+        ///     obtained during the parsing process. 
+        /// </returns>
         public List<Token> Parse(string markup)
         {
             if (string.IsNullOrEmpty(markup))
@@ -47,23 +99,40 @@ namespace YellowOak.HTMLLexicAnalisys
             return _tokens;
         }
 
+        /// <summary>
+        ///     Retrieving a list of parsing errors 
+        ///     found during lexical parsing.
+        ///     
+        ///     TODO: The part of the application 
+        ///     responsible for processing warnings 
+        ///     and errors needs to be improved.
+        /// </summary>
         public List<string> Diagnostics { get => _diagnostics; }
 
+        /// <summary>
+        ///     Creating a syntactic token 
+        ///     instance based on lexical parsing.
+        /// </summary>
+        /// <param name="kind"> Syntactic type of lexical token. </param>
         private void CommitToken(SyntaxKind kind)
         {
-            var tag = "";
+            var tagName = "";
             var text = _markup.Substring(_start, _position - _start + 1);
-            SyntaxKind tKind = kind;
-            SyntaxKind[] syntaxTagKinds = [ SyntaxKind.OpenTag, 
-                                            SyntaxKind.ClosingTag, 
-                                            SyntaxKind.AutoClosingTag ];
 
-            if (syntaxTagKinds.Contains(kind))
+            // Temporary variable to store
+            // given syntactic token kind
+            SyntaxKind tKind = kind;
+
+            SyntaxKind[] syntaxKindsHavingTagName = [SyntaxKind.OpenTag, 
+                                                     SyntaxKind.ClosingTag, 
+                                                     SyntaxKind.AutoClosingTag];
+
+            if (syntaxKindsHavingTagName.Contains(kind))
             {
-                tag = CropTagName(text);
+                tagName = CropTagName(text);
             }
 
-            if (_unpairedTags.Contains(tag) &&
+            if (_unpairedTags.Contains(tagName) &&
                 SyntaxKind.OpenTag == kind)
             {
                 tKind = SyntaxKind.AutoClosingTag;
@@ -73,20 +142,22 @@ namespace YellowOak.HTMLLexicAnalisys
                 tKind = kind;
             }
 
+            // Instantiating a lexical token based on the
+            // type received from the lexer
             switch (tKind)
             {
                 case SyntaxKind.Doctype:
                     _tokens.Add(new Token(tKind, null, null, text));
                     break;
                 case SyntaxKind.OpenTag:
-                    _tokens.Add(new Token(tKind, tag, _attributes, text));
+                    _tokens.Add(new Token(tKind, tagName, _attributes, text));
                     _attributes = [];
                     break;
                 case SyntaxKind.ClosingTag:
-                    _tokens.Add(new Token(tKind, tag, null, text));
+                    _tokens.Add(new Token(tKind, tagName, null, text));
                     break;
                 case SyntaxKind.AutoClosingTag:
-                    _tokens.Add(new Token(tKind, tag, _attributes, text));
+                    _tokens.Add(new Token(tKind, tagName, _attributes, text));
                     _attributes = [];
                     break;
                 case SyntaxKind.Content:
@@ -101,10 +172,23 @@ namespace YellowOak.HTMLLexicAnalisys
             }
         }
 
+        /// <summary>
+        ///     Retrieving the tag name from a 
+        ///     piece of markup received from 
+        ///     the lexical analyzer.
+        /// </summary>
+        /// <param name="text"> 
+        ///     Markup received 
+        ///     from the lexical analyzer. 
+        /// </param>
+        /// <returns> Cleaned tag name. </returns>
         private static string CropTagName(string text) => text.Trim('<').Trim('>').Trim('/').Split()[0];
 
-        
-        
+        /// <summary>
+        ///     Creating an instance of the Attribute 
+        ///     class and adding a token to the list 
+        ///     of attributes
+        /// </summary>
         private void CommitAttribute()
         {
             var attributeName = _attributeName.ToString();
@@ -122,6 +206,9 @@ namespace YellowOak.HTMLLexicAnalisys
                 _attributes.Add(new Attribute(attributeName, attributeValue));            
         }
 
+        /// <summary>
+        ///     Markup element at the current pointer position
+        /// </summary>
         private char Current
         {
             get
@@ -133,6 +220,9 @@ namespace YellowOak.HTMLLexicAnalisys
             }
         }
 
+        /// <summary>
+        ///     Markup element at the next pointer position
+        /// </summary>
         private char Next
         {
             get
@@ -144,10 +234,26 @@ namespace YellowOak.HTMLLexicAnalisys
             }
         }
 
+        /// <summary>
+        ///     Position pointer increment
+        /// </summary>
         private void StepBack() => _position--;
 
+        /// <summary>
+        ///     Position pointer decrement
+        /// </summary>
         private void StepForward() => _position++;
 
+        /// <summary>
+        ///     Cutting out a section of marking with 
+        ///     code that is incorrect according to 
+        ///     the analyzer
+        ///     
+        ///     TODO: The part of the application 
+        ///     responsible for processing warnings 
+        ///     and errors needs to be improved.
+        /// </summary>
+        /// <returns></returns>
         private string PlaceOfErrorCut()
         {
             if (_position + 10 >= _markup.Length)
@@ -156,6 +262,7 @@ namespace YellowOak.HTMLLexicAnalisys
                 return _markup[..20];
             return _markup.Substring(_position - 10, 20);
         }
+
 
         private void DataState()
         {
@@ -198,7 +305,9 @@ namespace YellowOak.HTMLLexicAnalisys
                     _start = _position;
 
                     if (char.IsLetter(Next))
+                    {
                         BeforeTagState();
+                    }
                     else
                     {
                         StepForward();
@@ -207,7 +316,9 @@ namespace YellowOak.HTMLLexicAnalisys
                     break;
                 }
                 else
+                {
                     StepForward();
+                }
             }
         }
 
@@ -215,31 +326,48 @@ namespace YellowOak.HTMLLexicAnalisys
         {
             StepForward();
 
-            if (Current == EXCLAMATION_MARK) 
+            if (Current == EXCLAMATION_MARK)
+            {
                 ExclamationMarkTagState();
+            }
             else if (Current == F_SLASH)
+            {
                 BeforeClosingTagState();
+            }
             else if (char.IsLetter(Current))
+            {
                 TagNameState();
+            }
             else
+            {
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
+            }
         }
 
         private void ExclamationMarkTagState()
         {
             StepForward();
+
             if (Current == DASH)
             {
                 StepForward();
                 if (Current == DASH)
+                {
                     BeforeCommentState();
+                }
                 else
+                {
                     BogusCommentState();
+                }
             }
             else if ("dD".Contains(Current))
+            {
                 DoctypeState();
+            }
             else
+            {
                 BogusCommentState();
+            }
         }
 
         private void BeforeClosingTagState()
@@ -247,11 +375,17 @@ namespace YellowOak.HTMLLexicAnalisys
             StepForward();
 
             if (char.IsWhiteSpace(Current))
+            {
                 BeforeClosingTagState();
+            }
             else if (char.IsLetterOrDigit(Current))
+            {
                 ClosingTagNameState();
+            }
             else if (Current == GT)
+            {
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
+            }
         }
 
         private void ClosingTagNameState()
@@ -259,9 +393,13 @@ namespace YellowOak.HTMLLexicAnalisys
             StepForward();
 
             if (char.IsLetterOrDigit(Current))
+            {
                 ClosingTagNameState();
+            }
             else if (Current == GT)
+            {
                 CommitToken(SyntaxKind.ClosingTag);
+            }
         }
 
         private void DoctypeState()
@@ -273,12 +411,18 @@ namespace YellowOak.HTMLLexicAnalisys
                 _position += DOCTYPE.Length;
 
                 if (char.IsWhiteSpace(Current))
+                {
                     DoctypeValueState();
+                }
                 else
+                {
                     _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
+                }
             }
             else
+            {
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
+            }
         }
 
         private void DoctypeValueState()
@@ -286,11 +430,17 @@ namespace YellowOak.HTMLLexicAnalisys
             StepForward();
 
             if (char.IsWhiteSpace(Current))
+            {
                 DoctypeValueState();
+            }
             else if (Current == GT)
+            {
                 CommitToken(SyntaxKind.Doctype);
+            }
             else
+            {
                 DoctypeValueState();
+            }
         }
 
         private void BogusCommentState()
@@ -298,18 +448,26 @@ namespace YellowOak.HTMLLexicAnalisys
             StepForward();
 
             if (Current == GT)
+            {
                 CommitToken(SyntaxKind.BogusComment);
+            }
         }
 
         private void BeforeCommentState()
         {
             StepForward();
             if (char.IsWhiteSpace(Current))
+            {
                 BeforeCommentState();
+            }
             else if (Current == DASH)
+            {
                 AfterCommentState();
+            }
             else
+            {
                 CommentState();
+            }
         }
 
         private void CommentState()
@@ -317,9 +475,13 @@ namespace YellowOak.HTMLLexicAnalisys
             StepForward();
 
             if (Current == DASH)
+            {
                 AfterCommentState();
+            }
             else
+            {
                 CommentState();
+            }
         }
 
         private void AfterCommentState()
@@ -327,11 +489,17 @@ namespace YellowOak.HTMLLexicAnalisys
             StepForward();
 
             if (Current == DASH)
+            {
                 AfterCommentState();
+            }
             else if (Current == GT)
+            {
                 CommitToken(SyntaxKind.Comment);
+            }
             else
+            {
                 CommentState();
+            }
         }
 
         private void TagNameState()
@@ -339,15 +507,25 @@ namespace YellowOak.HTMLLexicAnalisys
             StepForward();
 
             if (char.IsLetterOrDigit(Current) || Current == DASH)
+            {
                 TagNameState();
+            }
             else if (Current == GT)
+            {
                 CommitToken(SyntaxKind.OpenTag);
+            }
             else if (char.IsWhiteSpace(Current))
+            {
                 AfterTagNameState();
+            }
             else if (Current == F_SLASH)
+            {
                 AfterSelfClosingTagState();
+            }
             else
+            {
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
+            }
         }
 
         private void AfterTagNameState()
@@ -355,26 +533,35 @@ namespace YellowOak.HTMLLexicAnalisys
             StepForward();
 
             if (char.IsWhiteSpace(Current))
+            {
                 AfterTagNameState();
+            }
             else if (Current == GT)
+            {
                 CommitToken(SyntaxKind.OpenTag);
+            }
             else if (char.IsLetter(Current))
             {
                 _attributeName.Append(Current);
                 AttrNameState();
             }
             else if (Current == F_SLASH)
+            {
                 AfterSelfClosingTagState();
+            }
             else
+            {
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
+            }
         }
 
         private void AttrNameState()
         {
             StepForward();
-            if (char.IsLetterOrDigit(Current) || 
-                Current == DASH || 
-                Current == UNDERSCORE || 
+
+            if (char.IsLetterOrDigit(Current) ||
+                Current == DASH ||
+                Current == UNDERSCORE ||
                 Current == COLON)
             {
                 _attributeName.Append(Current);
@@ -391,17 +578,23 @@ namespace YellowOak.HTMLLexicAnalisys
                 AfterAttrNameState();
             }
             else if (Current == EQUALS)
+            {
                 BeforeAttrValueState();
+            }
             else
+            {
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
+            }
         }
 
-        private void AfterAttrNameState()
+            private void AfterAttrNameState()
         {
             StepForward();
 
             if (char.IsWhiteSpace(Current))
+            {
                 AfterAttrNameState();
+            }
             else if (Current == F_SLASH || 
                      char.IsLetter(Current) || 
                      Current == GT)
@@ -409,7 +602,9 @@ namespace YellowOak.HTMLLexicAnalisys
                 CommitAttribute();
 
                 if (Current == F_SLASH)
+                {
                     AfterSelfClosingTagState();
+                }
                 else
                 {
                     StepBack();
@@ -417,29 +612,41 @@ namespace YellowOak.HTMLLexicAnalisys
                 }
             }
             else if (Current == EQUALS)
+            {
                 BeforeAttrValueState();
+            }
             else
+            {
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
+            }
         }
 
         private void BeforeAttrValueState()
         {
             StepForward();
             if (char.IsWhiteSpace(Current))
+            {
                 BeforeAttrValueState();
+            }
             else if (Current == DOUBLE_QUOTE)
+            {
                 DoubleQuotedAttrValueState();
+            }
             else if (Current == SINGLE_QUOTE)
+            {
                 SingleQuotedAttrValueState();
-            else if (char.IsLetterOrDigit(Current) || 
-                     Current == SHARP || 
+            }
+            else if (char.IsLetterOrDigit(Current) ||
+                     Current == SHARP ||
                      Current == F_SLASH)
             {
                 _attributeValue.Append(Current);
                 UnquotedAttrValueState();
             }
             else
+            {
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
+            }
         }
 
         private void UnquotedAttrValueState()
@@ -495,11 +702,17 @@ namespace YellowOak.HTMLLexicAnalisys
             StepForward();
 
             if (char.IsWhiteSpace(Current))
+            {
                 AfterSelfClosingTagState();
+            }
             else if (Current == GT)
+            {
                 CommitToken(SyntaxKind.AutoClosingTag);
+            }
             else
+            {
                 _diagnostics.Add($"Error: '{PlaceOfErrorCut()}'");
+            }
         }
     }
 }
