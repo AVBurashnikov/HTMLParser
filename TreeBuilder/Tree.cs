@@ -20,54 +20,39 @@ namespace YellowOak.TreeBuilder
                 switch (token.Kind)
                 {
                     case SyntaxKind.Doctype:
-                        _tree.Add(new Node(token.Kind, 
-                                            null, 
-                                            null, 
-                                            null, 
-                                            null, 
-                                            null));
+                        _tree.Add(new Node(token.Kind, "DOCTYPE", [], null, null, []));
                         break;
                     
                     case SyntaxKind.OpenTag:
-                        node = new Node(token.Kind,
-                                            token.TagName,
-                                            token.Attributes,
-                                            null,
-                                            parent,
-                                            []);
+                        node = new Node(token.Kind, token.TagName, token.Attributes, null, parent, []);
+                        _tree.Add(node);
                         _stack.Push(node);
                         parent?.Children?.Add(node);
                         break;
                     
                     case SyntaxKind.AutoClosingTag:
-                        node = new Node(token.Kind,
-                            token.TagName,
-                            token.Attributes,
-                            null,
-                            parent,
-                            null);
+                        node = new Node(token.Kind, token.TagName, token.Attributes, null, parent, []);
+                        _tree.Add(node);
                         parent?.Children?.Add(node);
                         break;
                     
                     case SyntaxKind.Content:
                     case SyntaxKind.Comment:
-                        node = new Node(token.Kind,
-                                        null,
-                                        null,
-                                        token.Text,
-                                        parent,
-                                        null);
+                        node = new Node(token.Kind, "Comment|Content", [], token.Text, parent, []);
                         _tree.Add(node);
                         parent?.Children?.Add(node);
                         break;
+
                     case SyntaxKind.ClosingTag:
-                        _tree.Add(_stack.Pop());
+                        _stack.Pop();
                         break;
                 }
 
                 i++;
             }
         }
+
+        public List<Node> GetTree => _tree;
 
         public override string ToString()
         {

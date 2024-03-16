@@ -28,7 +28,7 @@ namespace YellowOak.TreeBuilder
         ///     Creating an instance of the Oak class
         /// </summary>
         /// <returns></returns>
-        public static Oak GetOakInstance()
+        public static Oak GetInstance()
         {
             if (_instance == null)
             {
@@ -43,9 +43,9 @@ namespace YellowOak.TreeBuilder
         ///     Pretty print for tree of html tags
         /// </summary>
         /// <returns></returns>
-        public string PrintTree()
+        public void Print()
         {
-            return _tree.ToString();
+            Console.WriteLine(_tree.ToString());
         }
 
         // Needs improvement
@@ -75,12 +75,83 @@ namespace YellowOak.TreeBuilder
         ///     Method for starting parsing lexemes 
         ///     into tag tree nodes
         /// </summary>
-        public void GrowTree()
+        public void Grow()
         {
             var tokenizer = new Tokenizer();
             var tokens = tokenizer.Parse(_markup);
 
             _tree.Grow(tokens);
+        }
+
+        public Node? GetNodeWithTag(string tag)
+        {
+            foreach (Node node in _tree.GetTree)
+            {
+                if (node.Tag == tag)
+                {
+                    return node;
+                }
+            }
+            return null;
+        }
+
+        public List<Node> GetNodesWithTag(string tag)
+        {
+            List<Node> nodes = [];
+            foreach (Node node in _tree.GetTree)
+            {
+                if (node.Tag == tag)
+                {
+                    nodes.Add(node);
+                }
+            }
+            return nodes;
+        }
+
+        public Node GetNodeWithAttr(string name, string value)
+        {
+            foreach (Node node in _tree.GetTree)
+            {
+                if (node.Attributes.Count == 0)
+                {
+                    continue;
+                }
+                else
+                {
+                    foreach(YellowOak.HTMLLexicAnalisys.Attribute attribute in node.Attributes)
+                    {
+                        if ( attribute.Name == name && attribute.Value == value)
+                        {
+                            return node;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        public List<Node> GetNodesWithAttr(string name, string value)
+        {
+            List<Node> nodes = [];
+
+            foreach (Node node in _tree.GetTree)
+            {
+                if (node.Attributes.Count == 0)
+                {
+                    continue;
+                }
+                else
+                {
+                    foreach (HTMLLexicAnalisys.Attribute attribute in node.Attributes)
+                    {
+                        if (attribute.Name == name && attribute.Value == value)
+                        {
+                            nodes.Add(node);
+                        }
+                    }
+                }
+            }
+            return nodes;
         }
     }
 }

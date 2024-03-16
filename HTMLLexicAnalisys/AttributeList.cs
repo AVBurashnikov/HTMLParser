@@ -1,4 +1,6 @@
 ﻿using System.Collections;
+using System.Text;
+using YellowOak.TreeBuilder;
 
 namespace YellowOak.HTMLLexicAnalisys
 {
@@ -50,6 +52,17 @@ namespace YellowOak.HTMLLexicAnalisys
         IEnumerator IEnumerable.GetEnumerator()
         {
             return (IEnumerator) GetEnumerator();
+        }
+
+        public override string ToString()
+        {
+            var sb = new StringBuilder();
+            foreach (var attribute in _attributes)
+            {
+                sb.Append(attribute.ToString());
+            }
+
+            return sb.ToString();
         }
     }
 }

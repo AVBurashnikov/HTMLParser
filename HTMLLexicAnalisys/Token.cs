@@ -11,16 +11,16 @@ namespace YellowOak.HTMLLexicAnalisys
     {
         public SyntaxKind Kind { get; }
         public string? TagName { get; }
-        public AttributeList? Attributes { get; }
+        public AttributeList Attributes { get; }
         public string Text { get; }
         public int Position { get; }
 
-        public Token(SyntaxKind kind, string? tagName, AttributeList? attributes, string text)
+        public Token(SyntaxKind kind, string? tagName, AttributeList attributes, string text)
         {
             if (attributes is not null && attributes.Count > 0)
                 Attributes = attributes;
             else
-                Attributes = null;
+                Attributes = [];
 
             if (tagName is not null)
                 TagName = tagName;
