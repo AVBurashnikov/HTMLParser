@@ -38,7 +38,7 @@ namespace YellowOak.HTMLLexicAnalisys
             {
                 sb.AppendLine("Attributes");
                 foreach (Attribute attribute in Attributes)
-                    sb.AppendLine($"{attribute.Name} = '{attribute.Value}'");
+                    sb.AppendLine($"{attribute.Key} = '{attribute.Value}'");
             }
 
             sb.AppendLine();

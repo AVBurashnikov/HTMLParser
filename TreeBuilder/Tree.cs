@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Collections.Generic;
+using System.Text;
 using YellowOak.HTMLLexicAnalisys;
 
 namespace YellowOak.TreeBuilder
@@ -52,7 +53,23 @@ namespace YellowOak.TreeBuilder
             }
         }
 
-        public List<Node> GetTree => _tree;
+        public List<Node> Find(string tagName, bool many = false)
+        {
+            List<Node> nodes = [];
+
+            foreach (var node in _tree)
+            {
+                if (node.Tag == tagName)
+                {
+                    nodes.Add(node);
+                    if (!many)
+                    {
+                        return nodes;
+                    }
+                }
+            }
+            return nodes;
+        }
 
         public override string ToString()
         {

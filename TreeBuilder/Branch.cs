@@ -8,5 +8,10 @@ namespace YellowOak.TreeBuilder
 {
     internal class Branch
     {
+        public List<Node> _branch = [];
+        public Branch(List<Node> branch) 
+        {
+            _branch = branch;
+        }
     }
 }

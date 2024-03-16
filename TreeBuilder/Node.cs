@@ -15,11 +15,11 @@ namespace YellowOak.TreeBuilder
         public AttributeList Attributes { get; set; }
         public string? Text { get; set; }
         public Node? Parent { get; set; }
-        public List<Node>? Children { get; set; }
+        public List<Node> Children { get; set; }
 
         public Node(SyntaxKind kind, string? tag, 
                     AttributeList attributes, string? text, 
-                    Node? parent, List<Node>? children)
+                    Node? parent, List<Node> children)
         {
             Kind = kind; // SyntaxKind.Doctype
             Tag = tag; // None|div
@@ -37,6 +37,11 @@ namespace YellowOak.TreeBuilder
         public string InnerHTML()
         {
             return this.InnerText();
+        }
+
+        public List<Node> GetChilds()
+        {
+            return Children;
         }
 
         public override string ToString()

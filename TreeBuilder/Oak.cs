@@ -83,75 +83,9 @@ namespace YellowOak.TreeBuilder
             _tree.Grow(tokens);
         }
 
-        public Node? GetNodeWithTag(string tag)
+        public List<Node> Find(string tagName, bool many = false)
         {
-            foreach (Node node in _tree.GetTree)
-            {
-                if (node.Tag == tag)
-                {
-                    return node;
-                }
-            }
-            return null;
-        }
-
-        public List<Node> GetNodesWithTag(string tag)
-        {
-            List<Node> nodes = [];
-            foreach (Node node in _tree.GetTree)
-            {
-                if (node.Tag == tag)
-                {
-                    nodes.Add(node);
-                }
-            }
-            return nodes;
-        }
-
-        public Node GetNodeWithAttr(string name, string value)
-        {
-            foreach (Node node in _tree.GetTree)
-            {
-                if (node.Attributes.Count == 0)
-                {
-                    continue;
-                }
-                else
-                {
-                    foreach(YellowOak.HTMLLexicAnalisys.Attribute attribute in node.Attributes)
-                    {
-                        if ( attribute.Name == name && attribute.Value == value)
-                        {
-                            return node;
-                        }
-                    }
-                }
-            }
-            return null;
-        }
-
-        public List<Node> GetNodesWithAttr(string name, string value)
-        {
-            List<Node> nodes = [];
-
-            foreach (Node node in _tree.GetTree)
-            {
-                if (node.Attributes.Count == 0)
-                {
-                    continue;
-                }
-                else
-                {
-                    foreach (HTMLLexicAnalisys.Attribute attribute in node.Attributes)
-                    {
-                        if (attribute.Name == name && attribute.Value == value)
-                        {
-                            nodes.Add(node);
-                        }
-                    }
-                }
-            }
-            return nodes;
+            return _tree.Find(tagName, many);
         }
     }
 }

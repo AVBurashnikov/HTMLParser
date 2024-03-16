@@ -2,14 +2,14 @@
 
 namespace YellowOak.HTMLLexicAnalisys
 {
-    internal record Attribute(string name, string value)
+    internal record Attribute(string key, string value)
     {
-        public string Name = name;
+        public string Key = key;
         public string Value = value;
 
         public override string ToString()
         {
-            return $"\t{name}='{value}'\n";
+            return $"\t{Key}='{Value}'\n";
         }
     }
 }

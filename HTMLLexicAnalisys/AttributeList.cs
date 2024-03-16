@@ -10,18 +10,16 @@ namespace YellowOak.HTMLLexicAnalisys
         public List<Attribute> GetAll { get; }
         public void Add(Attribute attribute);
         public void Clear();
-        public Attribute? GetAttribute(string name);
+        public Attribute? GetAttribute(string key);
 
     }
 
     internal class AttributeList: IAttributeList, IEnumerable<Attribute>
     {
         private readonly List<Attribute> _attributes = [];
-
         public List<Attribute> GetAll => _attributes;
-
         public int Count => _attributes.Count;
-
+        
         public void Add(Attribute attribute)
         {
                 _attributes.Add(attribute);
@@ -32,11 +30,11 @@ namespace YellowOak.HTMLLexicAnalisys
             _attributes.Clear();
         }
 
-        public Attribute? GetAttribute(string name)
+        public Attribute? GetAttribute(string key)
         {
             foreach (Attribute attribute in _attributes)
             {
-                if (attribute.Name == name)
+                if (attribute.Key == key)
                 {
                     return attribute;
                 }
